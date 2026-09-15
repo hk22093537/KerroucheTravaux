@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="theme-color" content="#10221c">
+	<title>سجل الورشة | متابعة الأجور والآليات</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="style.css">
+</head>
+<body>
+	<div class="app-shell">
+		<aside class="sidebar" id="sidebar">
+			<div class="brand"><span class="brand-mark">ك</span><div><strong>سجل الورشة</strong><small>Kerrouche Travaux</small></div></div>
+			<nav class="main-nav" aria-label="التنقل الرئيسي">
+				<button class="nav-item active" data-view="dashboard"><span>⌂</span> لوحة المتابعة</button>
+				<button class="nav-item" data-view="workers"><span>◉</span> العمال اليوميون <b id="workersCount">٦</b></button>
+				<button class="nav-item" data-view="diggers"><span>◌</span> عمال الحفر <b>٤</b></button>
+				<button class="nav-item" data-view="trucks"><span>▣</span> الشاحنات <b id="trucksCount">٢</b></button>
+			</nav>
+			<div class="sidebar-bottom">
+				<div class="sync-status"><i></i><span id="syncLabel">يُحفظ محليًا</span></div>
+				<button class="settings-button" id="openSettings">⚙ إعدادات الاتصال</button>
+				<button class="theme-button" id="themeToggle"><span>◐</span> الوضع الداكن</button>
+				<small class="version">سجل الورشة · 1.0</small>
+			</div>
+		</aside>
+
+		<main class="main-content">
+			<header class="topbar">
+				<button class="mobile-menu" id="mobileMenu" aria-label="فتح القائمة">☰</button>
+				<div class="breadcrumb"><span>الورشة</span><b>/</b><strong id="pageLabel">لوحة المتابعة</strong></div>
+				<div class="topbar-actions"><span class="live-dot"></span><span id="todayLabel"></span><button class="avatar" aria-label="الحساب">م</button></div>
+			</header>
+
+			<div class="page-wrap">
+				<section class="view active" id="dashboardView">
+					<div class="page-heading"><div><p class="eyebrow">ملخص العمل</p><h1>أهلًا بك في سجلك</h1><p class="muted">تابع الحضور، ساعات الحفر، وحركة الشاحنات من مكان واحد.</p></div><button class="primary-button" id="quickAdd">＋ تسجيل حركة</button></div>
+					<div class="month-bar"><button class="month-arrow" data-month="prev" aria-label="الشهر السابق">→</button><div><span>الفترة الحالية</span><strong id="dashboardMonth"></strong></div><button class="month-arrow" data-month="next" aria-label="الشهر التالي">←</button></div>
+					<div class="stat-grid">
+						<article class="stat-card green"><div class="stat-icon">◉</div><div><span>أجور العمال اليوميين</span><strong id="workerTotal">٠ دج</strong><small id="workerMeta">٠ يوم حضور</small></div></article>
+						<article class="stat-card amber"><div class="stat-icon">◌</div><div><span>أجور عمال الحفر</span><strong id="diggerTotal">٠ دج</strong><small id="diggerMeta">٠ ساعة عمل</small></div></article>
+						<article class="stat-card blue"><div class="stat-icon">▣</div><div><span>إجمالي الشحنات</span><strong id="truckTotal">٠ شحنة</strong><small id="truckMeta">٠ رحلة مسجلة</small></div></article>
+					</div>
+					<div class="section-head"><div><p class="eyebrow">نظرة سريعة</p><h2>آخر النشاطات</h2></div><button class="text-button" data-view="workers">عرض كل السجلات ←</button></div>
+					<div class="activity-panel" id="activityList"><div class="empty-state"><span>✦</span><strong>لا توجد حركات بعد</strong><p>ابدأ بإضافة حضور أو ساعات أو شحنات لهذا الشهر.</p></div></div>
+					<div class="tip-banner"><span>✳</span><div><strong>نصيحة اليوم</strong><p>حدّث الأسعار من بطاقات العاملين مرة واحدة، وسيُعاد احتساب الإجماليات تلقائيًا.</p></div></div>
+				</section>
+
+				<section class="view" id="workersView"><div class="page-heading"><div><p class="eyebrow">الفريق · ٠١</p><h1>العمال اليوميون</h1><p class="muted">سجّل أيام الحضور وراقب الأجر الشهري لكل عامل.</p></div><div class="heading-actions"><button class="secondary-button" data-add-person="workers">＋ إضافة عامل</button><button class="primary-button" data-open-entry="workers">＋ تسجيل حضور</button></div></div><div class="month-bar"><button class="month-arrow" data-month="prev">→</button><div><span>كشف شهر</span><strong class="current-month"></strong></div><button class="month-arrow" data-month="next">←</button></div><div class="people-grid" id="workersGrid"></div></section>
+				<section class="view" id="diggersView"><div class="page-heading"><div><p class="eyebrow">الفريق · ٠٢</p><h1>عمال الحفر بالساعة</h1><p class="muted">سجّل الساعات المنجزة واحسب الأجر بدقة.</p></div><button class="primary-button" data-open-entry="diggers">＋ تسجيل ساعات</button></div><div class="month-bar"><button class="month-arrow" data-month="prev">→</button><div><span>كشف شهر</span><strong class="current-month"></strong></div><button class="month-arrow" data-month="next">←</button></div><div class="people-grid" id="diggersGrid"></div></section>
+				<section class="view" id="trucksView"><div class="page-heading"><div><p class="eyebrow">المعدات · ٠٣</p><h1>الشاحنات</h1><p class="muted">تابع عدد الشحنات اليومية لكل شاحنة.</p></div><div class="heading-actions"><button class="secondary-button" data-add-person="trucks">＋ إضافة شاحنة</button><button class="primary-button" data-open-entry="trucks">＋ تسجيل شحنات</button></div></div><div class="month-bar"><button class="month-arrow" data-month="prev">→</button><div><span>كشف شهر</span><strong class="current-month"></strong></div><button class="month-arrow" data-month="next">←</button></div><div class="people-grid truck-grid" id="trucksGrid"></div></section>
+			</div>
+		</main>
+	</div>
+
+	<div class="modal-backdrop" id="entryModal"><div class="modal"><button class="close-modal" data-close-modal>×</button><p class="eyebrow">إضافة سجل</p><h2 id="modalTitle">تسجيل حركة</h2><form id="entryForm"><label>الفئة<select id="entryType"><option value="workers">عامل يومي</option><option value="diggers">عامل حفر</option><option value="trucks">شاحنة</option></select></label><label id="personLabel">الاسم<select id="entryPerson"></select></label><label>التاريخ<input id="entryDate" type="date" required></label><label id="amountLabel">عدد الأيام<input id="entryAmount" type="number" min="0.5" step="0.5" value="1" required></label><div class="form-actions"><button type="button" class="secondary-button" data-close-modal>إلغاء</button><button type="submit" class="primary-button">حفظ السجل</button></div></form></div></div>
+	<div class="modal-backdrop" id="settingsModal"><div class="modal"><button class="close-modal" data-close-settings>×</button><p class="eyebrow">الإعدادات</p><h2>الاتصال بقاعدة البيانات</h2><p class="modal-note">أدخل بيانات Supabase ليتم حفظ السجلات ومزامنتها. تظل المفاتيح محفوظة في هذا المتصفح فقط.</p><form id="settingsForm"><label>Project URL<input id="supabaseUrl" type="url" placeholder="https://your-project.supabase.co"></label><label>anon public key<input id="supabaseKey" type="password" placeholder="eyJhbGciOiJIUzI1NiIs..." autocomplete="off"></label><div class="form-actions"><button type="button" class="secondary-button" data-close-settings>إلغاء</button><button type="submit" class="primary-button">حفظ ومتابعة</button></div></form></div></div>
+	<div class="toast" id="toast"></div>
+	<script src="app.js"></script>
+</body>
+</html>
