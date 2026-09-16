@@ -25,8 +25,10 @@ create table if not exists worker_entries (
 create table if not exists diggers (
   id uuid primary key default gen_random_uuid(),
   name text not null,
-  hourly_rate numeric not null default 0
+  hourly_rate numeric not null default 0,
+  service_hours numeric not null default 0
 );
+alter table diggers add column if not exists service_hours numeric not null default 0;
 create table if not exists digger_entries (
   id uuid primary key default gen_random_uuid(),
   digger_id uuid not null references diggers(id) on delete cascade,
