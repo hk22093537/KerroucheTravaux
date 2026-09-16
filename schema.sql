@@ -35,8 +35,10 @@ create table if not exists digger_entries (
 );
 create table if not exists trucks (
   id uuid primary key default gen_random_uuid(),
-  name text not null
+  name text not null,
+  hauling_rate numeric not null default 0
 );
+alter table trucks add column if not exists hauling_rate numeric not null default 0;
 create table if not exists truck_entries (
   id uuid primary key default gen_random_uuid(),
   truck_id uuid not null references trucks(id) on delete cascade,
