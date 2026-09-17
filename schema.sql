@@ -20,8 +20,12 @@ create table if not exists worker_entries (
   id uuid primary key default gen_random_uuid(),
   worker_id uuid not null references workers(id) on delete cascade,
   entry_date date not null,
-  days numeric not null default 1
+  days numeric not null default 1,
+  attendance numeric not null default 0,
+  overtime_hours numeric not null default 0
 );
+alter table worker_entries add column if not exists attendance numeric not null default 0;
+alter table worker_entries add column if not exists overtime_hours numeric not null default 0;
 create table if not exists diggers (
   id uuid primary key default gen_random_uuid(),
   name text not null,
