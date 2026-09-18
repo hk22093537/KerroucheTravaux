@@ -455,8 +455,8 @@ function renderPeople(type) {
 }
 
 function renderSummary() {
-  const totals = { workers: 0, diggers: 0, trucks: 0 };
-  const units = { workers: 0, diggers: 0, trucks: 0 };
+  const totals = { workers: 0, workerExpenses: 0, diggers: 0, trucks: 0 };
+  const units = { workers: 0, workerExpenses: 0, diggers: 0, trucks: 0 };
 
   state.entries.filter(entry => entry.month === currentMonthKey()).forEach(entry => {
     const amount = safeNumber(entry.amount, 0);
@@ -471,12 +471,18 @@ function renderSummary() {
     const overtimeHours = workerEntryOvertime(worker.id, currentMonthKey());
     totals.workers += safeNumber(worker.monthlySalary) > 0 ? safeNumber(worker.monthlySalary) : (attendanceDays * safeNumber(worker.rate)) + (overtimeHours * safeNumber(worker.overtimeRate)) - safeNumber(worker.advance);
     units.workers += attendanceDays;
+
+    const monthlyExpenses = (worker.personalExpenses || []).filter(item => (item.date || '').slice(0, 7) === currentMonthKey());
+    totals.workerExpenses += monthlyExpenses.reduce((sum, item) => sum + safeNumber(item.amount, 0), 0);
+    units.workerExpenses += monthlyExpenses.length;
   });
 
   qs('#workerTotal').textContent = money(totals.workers);
+  qs('#workerExpenseTotal').textContent = money(totals.workerExpenses);
   qs('#diggerTotal').textContent = money(totals.diggers);
   qs('#truckTotal').textContent = money(totals.trucks);
   qs('#workerMeta').textContent = `${arabicDigits(units.workers)} يوم حضور`;
+  qs('#workerExpenseMeta').textContent = `${arabicDigits(units.workerExpenses)} مصروف مسجل`;
   qs('#diggerMeta').textContent = `${arabicDigits(units.diggers)} ساعة عمل`;
   qs('#truckMeta').textContent = `${arabicDigits(units.trucks)} رحلة مسجلة`;
 
