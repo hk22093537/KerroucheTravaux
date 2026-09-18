@@ -344,13 +344,6 @@ function renderPeople(type) {
       const workDays = safeNumber(person.workDays) || attendanceTotal;
       const overtimeHours = safeNumber(person.overtimeHours) || overtimeTotal;
       const total = (workDays * safeNumber(person.rate)) + (overtimeHours * safeNumber(person.overtimeRate)) - safeNumber(person.advance);
-      const personalExpensesTotal = (person.personalExpenses || []).reduce((sum, item) => sum + safeNumber(item.amount, 0), 0);
-      const recentExpenses = (person.personalExpenses || []).slice().reverse().slice(0, 5).map(item => `
-        <li>
-          <span>${item.date} • ${item.note || 'مصروف شخصي'}</span>
-          <strong>${money(safeNumber(item.amount, 0))}</strong>
-        </li>
-      `).join('') || '<li>لا توجد مصاريف مسجلة</li>';
 
       const html = `
         <article class="person-card">
@@ -372,14 +365,6 @@ function renderPeople(type) {
           <div class="total-row">
             <span>الجمالي</span>
             <strong>${money(total)}</strong>
-          </div>
-          <div class="expense-box">
-            <div class="expense-header">
-              <strong>مصاريف العامل</strong>
-              <span>${money(personalExpensesTotal)}</span>
-            </div>
-            <ul class="expense-list">${recentExpenses}</ul>
-            <button type="button" class="expense-button" data-worker-expense="${person.id}">＋ إضافة مصروف</button>
           </div>
         </article>
       `;
@@ -454,6 +439,96 @@ function renderPeople(type) {
   });
 }
 
+function renderWorkerExpenses() {
+  const list = qs('#workerExpenseList');
+  if (!list) return;
+
+  const expenses = state.workers.flatMap(worker => (worker.personalExpenses || [])
+    .filter(item => (item.date || '').slice(0, 7) === currentMonthKey())
+    .map(item => ({ ...item, workerName: worker.name, date: item.date || currentMonthKey() + '-01' })))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  list.innerHTML = expenses.length ? expenses.slice(0, 8).map(item => `
+    <div class="activity-row">
+      <span class="activity-dot"></span>
+      <div>
+        <strong>${item.workerName}</strong>
+        <small>${item.date} • ${item.note || 'مصروف شخصي'}</small>
+      </div>
+      <b>${money(safeNumber(item.amount, 0))}</b>
+    </div>
+  `).join('') : `<div class="empty-state"><span>✦</span><strong>لا توجد مصروفات للعمال</strong><p>اختر “إضافة مصروف عامل” لتسجيل مصروف جديد.</p></div>`;
+}
+
+function escapeAttribute(value = '') {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function getWorkerMonthExpenses(workerId, month = currentMonthKey()) {
+  const worker = state.workers.find(item => item.id === workerId);
+  if (!worker) return [];
+  return (worker.personalExpenses || [])
+    .filter(item => (item.date || '').slice(0, 7) === month)
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+}
+
+function renderWorkerExpensesView() {
+  const grid = qs('#workerExpensesGrid');
+  if (!grid) return;
+
+  if (!state.workers.length) {
+    grid.innerHTML = '<article class="person-card"><div class="empty-state"><span>✦</span><strong>لا توجد عمال مسجلين</strong><p>أضف عاملًا أولاً قبل تسجيل المصروفات.</p></div></article>';
+    return;
+  }
+
+  grid.innerHTML = state.workers.map(worker => {
+    const expenses = getWorkerMonthExpenses(worker.id);
+    const total = expenses.reduce((sum, item) => sum + safeNumber(item.amount, 0), 0);
+
+    const list = expenses.length
+      ? expenses.map(item => `
+          <div class="activity-row">
+            <div class="row-field">
+              <label>التاريخ
+                <input type="date" value="${item.date || ''}" data-expense-date="${item.id}" data-worker-id="${worker.id}">
+              </label>
+            </div>
+            <div class="row-field">
+              <label>المبلغ
+                <input type="number" min="0" step="0.01" value="${safeNumber(item.amount, 0)}" data-expense-amount="${item.id}" data-worker-id="${worker.id}">
+              </label>
+            </div>
+            <div class="row-field row-field-wide">
+              <label>سبب المصروف
+                <input type="text" value="${escapeAttribute(item.note || 'مصروف شخصي')}" data-expense-note="${item.id}" data-worker-id="${worker.id}">
+              </label>
+            </div>
+            <button class="remove-expense" type="button" data-remove-expense="${item.id}" data-worker-id="${worker.id}" title="حذف المصروف">×</button>
+          </div>
+        `).join('')
+      : '<div class="empty-state compact"><span>✦</span><strong>لا توجد مصروفات لهذا الشهر</strong></div>';
+
+    return `
+      <article class="person-card">
+        <div class="card-header">
+          <div>
+            <strong>${escapeAttribute(worker.name)}</strong>
+            <small>مجموع هذا الشهر: ${money(total)}</small>
+          </div>
+          <button class="primary-button small-button" type="button" data-add-expense-for-worker="${worker.id}">＋ إضافة</button>
+        </div>
+        <div class="expense-table">
+          ${list}
+        </div>
+      </article>
+    `;
+  }).join('');
+}
+
 function renderSummary() {
   const totals = { workers: 0, workerExpenses: 0, diggers: 0, trucks: 0 };
   const units = { workers: 0, workerExpenses: 0, diggers: 0, trucks: 0 };
@@ -501,9 +576,36 @@ function renderSummary() {
 function render() {
   renderMonths();
   ['workers', 'diggers', 'trucks'].forEach(renderPeople);
+  renderWorkerExpenses();
+  renderWorkerExpensesView();
   renderSummary();
   save();
   syncToSupabase();
+}
+
+function openWorkerExpenseModal(personId = '') {
+  const select = qs('#expenseWorker');
+  if (!select) return;
+
+  select.innerHTML = state.workers.map(worker => `<option value="${worker.id}" ${worker.id === personId ? 'selected' : ''}>${worker.name}</option>`).join('');
+  qs('#expenseDate').value = new Date().toISOString().slice(0, 10);
+  qs('#expenseAmount').value = '0';
+  qs('#expenseReason').value = '';
+  qs('#workerExpenseModal').classList.add('open');
+}
+
+function addWorkerExpense(personId = '') {
+  if (!state.workers.length) {
+    showToast('لا توجد عمال مسجلين حتى الآن');
+    return;
+  }
+  openWorkerExpenseModal(personId);
+}
+
+function addWorkerExpenseForWorker(workerId) {
+  const worker = state.workers.find(item => item.id === workerId);
+  if (!worker) return;
+  addWorkerExpense(worker.id);
 }
 
 function addPerson(type) {
@@ -565,7 +667,7 @@ document.addEventListener('click', event => {
   if (view) {
     document.querySelectorAll('.nav-item').forEach(x => x.classList.toggle('active', x.dataset.view === view.dataset.view));
     document.querySelectorAll('.view').forEach(x => x.classList.toggle('active', x.id === `${view.dataset.view}View`));
-    qs('#pageLabel').textContent = view.dataset.view === 'dashboard' ? 'لوحة المتابعة' : view.dataset.view === 'workers' ? 'العمال اليوميون' : view.dataset.view === 'diggers' ? 'الحفارات' : 'الشاحنات';
+    qs('#pageLabel').textContent = view.dataset.view === 'dashboard' ? 'لوحة المتابعة' : view.dataset.view === 'workers' ? 'العمال اليوميون' : view.dataset.view === 'workerExpenses' ? 'مصاريف العمال' : view.dataset.view === 'diggers' ? 'الحفارات' : 'الشاحنات';
     qs('#sidebar').classList.remove('open');
   }
 
@@ -584,6 +686,7 @@ document.addEventListener('click', event => {
   }
 
   if (event.target.closest('[data-close-modal]')) qs('#entryModal').classList.remove('open');
+  if (event.target.closest('[data-close-worker-expense]')) qs('#workerExpenseModal').classList.remove('open');
   if (event.target.closest('[data-close-settings]')) qs('#settingsModal').classList.remove('open');
   if (event.target.closest('[data-close-export]')) qs('#exportModal').classList.remove('open');
 
@@ -610,6 +713,36 @@ qs('#entryType').addEventListener('change', () => {
   const type = qs('#entryType').value;
   qs('#entryPerson').innerHTML = state[type].map(p => `<option value="${p.id}">${p.name}</option>`).join('');
   updateEntryLabels();
+});
+
+qs('#workerExpenseForm').addEventListener('submit', event => {
+  event.preventDefault();
+  const workerId = qs('#expenseWorker').value;
+  const worker = state.workers.find(item => item.id === workerId);
+  const date = qs('#expenseDate').value || new Date().toISOString().slice(0, 10);
+  const amount = Number(qs('#expenseAmount').value) || 0;
+  const reason = String(qs('#expenseReason').value || '').trim();
+
+  if (!worker) {
+    showToast('اختر عاملًا صحيحًا');
+    return;
+  }
+
+  if (!reason) {
+    showToast('اكتب سبب المصروف');
+    return;
+  }
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    showToast('أدخل مبلغًا صحيحًا أكبر من صفر');
+    return;
+  }
+
+  worker.personalExpenses = worker.personalExpenses || [];
+  worker.personalExpenses.push({ id: crypto.randomUUID(), amount, note: reason, date });
+  qs('#workerExpenseModal').classList.remove('open');
+  render();
+  showToast(`تم تسجيل مصروف ${worker.name} بقيمة ${money(amount)}`);
 });
 
 qs('#entryForm').addEventListener('submit', event => {
@@ -650,25 +783,31 @@ qs('#entryForm').addEventListener('submit', event => {
 });
 
 document.addEventListener('click', event => {
-  const trigger = event.target.closest('[data-worker-expense]');
-  if (trigger) {
-    const person = state.workers.find(item => item.id === trigger.dataset.workerExpense);
-    if (!person) return;
-    const amount = Number(window.prompt(`مبلغ مصروف ${person.name}\nمثال: 1000`, '0'));
-    if (!Number.isFinite(amount) || amount <= 0) {
-      showToast('أدخل مبلغًا صحيحًا أكبر من صفر');
-      return;
-    }
-    const note = window.prompt(`وصف المصروف لـ ${person.name}\nمثال: شراء سجائر`, 'مصروف شخصي') || 'مصروف شخصي';
-    person.personalExpenses = person.personalExpenses || [];
-    person.personalExpenses.push({
-      id: crypto.randomUUID(),
-      amount,
-      note,
-      date: new Date().toISOString().slice(0, 10)
-    });
+  const addExpenseButton = event.target.closest('#addWorkerExpense');
+  if (addExpenseButton) {
+    addWorkerExpense();
+    return;
+  }
+
+  const addExpenseViewButton = event.target.closest('[data-add-worker-expense-view]');
+  if (addExpenseViewButton) {
+    addWorkerExpense();
+    return;
+  }
+
+  const addSingleExpenseButton = event.target.closest('[data-add-expense-for-worker]');
+  if (addSingleExpenseButton) {
+    addWorkerExpenseForWorker(addSingleExpenseButton.dataset.addExpenseForWorker);
+    return;
+  }
+
+  const removeExpenseTrigger = event.target.closest('[data-remove-expense]');
+  if (removeExpenseTrigger) {
+    const worker = state.workers.find(item => item.id === removeExpenseTrigger.dataset.workerId);
+    if (!worker) return;
+    worker.personalExpenses = (worker.personalExpenses || []).filter(item => item.id !== removeExpenseTrigger.dataset.removeExpense);
     render();
-    showToast(`تم تسجيل مصروف ${person.name} بقيمة ${money(amount)}`);
+    showToast('تم حذف المصروف');
     return;
   }
 
@@ -692,6 +831,39 @@ document.addEventListener('click', event => {
 });
 
 document.addEventListener('change', event => {
+  if (event.target.matches('[data-expense-amount]')) {
+    const worker = state.workers.find(item => item.id === event.target.dataset.workerId);
+    if (!worker) return;
+    const expense = (worker.personalExpenses || []).find(item => item.id === event.target.dataset.expenseAmount);
+    if (!expense) return;
+    expense.amount = Number(event.target.value) || 0;
+    render();
+    showToast('تم تحديث مبلغ المصروف');
+    return;
+  }
+
+  if (event.target.matches('[data-expense-note]')) {
+    const worker = state.workers.find(item => item.id === event.target.dataset.workerId);
+    if (!worker) return;
+    const expense = (worker.personalExpenses || []).find(item => item.id === event.target.dataset.expenseNote);
+    if (!expense) return;
+    expense.note = event.target.value || 'مصروف شخصي';
+    render();
+    showToast('تم تحديث وصف المصروف');
+    return;
+  }
+
+  if (event.target.matches('[data-expense-date]')) {
+    const worker = state.workers.find(item => item.id === event.target.dataset.workerId);
+    if (!worker) return;
+    const expense = (worker.personalExpenses || []).find(item => item.id === event.target.dataset.expenseDate);
+    if (!expense) return;
+    expense.date = event.target.value || new Date().toISOString().slice(0, 10);
+    render();
+    showToast('تم تحديث تاريخ المصروف');
+    return;
+  }
+
   if (!event.target.matches('.edit-name, .rate input, [data-field]')) return;
 
   const card = event.target.closest('.person-card');
