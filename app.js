@@ -8,23 +8,24 @@ const safeNumber = (value, fallback = 0) => {
 };
 
 let selectedMonth = new Date();
-const defaults = { workers: [['العامل ١',1800],['العامل ٢',1800],['العامل ٣',1800],['العامل ٤',1800],['العامل ٥',1800],['العامل ٦',1800]], diggers: [['حفار ١',350],['حفار ٢',350],['حفار ٣',350],['حفار ٤',350]], trucks: [['الشاحنة ٠١',0],['الشاحنة ٠٢',0]] };
+const defaults = { workers: [['العامل ١',1800],['العامل ٢',1800],['العامل ٣',1800],['العامل ٤',1800],['العامل ٥',1800],['العامل ٦',1800]], diggers: [['حفار ١',350],['حفار ٢',350],['حفار ٣',350],['حفار ٤',350]], trucks: [['الشاحنة ٠١',0],['الشاحنة ٠٢',0]], companyExpenses: [] };
 
 function loadInitialState() {
   try {
     const raw = localStorage.getItem('workshopData');
     if (!raw) {
-      return { workers: [], diggers: [], trucks: [], entries: [] };
+      return { workers: [], diggers: [], trucks: [], companyExpenses: [], entries: [] };
     }
     const parsed = JSON.parse(raw);
     return {
       workers: Array.isArray(parsed?.workers) ? parsed.workers : [],
       diggers: Array.isArray(parsed?.diggers) ? parsed.diggers : [],
       trucks: Array.isArray(parsed?.trucks) ? parsed.trucks : [],
+      companyExpenses: Array.isArray(parsed?.companyExpenses) ? parsed.companyExpenses : [],
       entries: Array.isArray(parsed?.entries) ? parsed.entries : []
     };
   } catch (error) {
-    return { workers: [], diggers: [], trucks: [], entries: [] };
+    return { workers: [], diggers: [], trucks: [], companyExpenses: [], entries: [] };
   }
 }
 
@@ -87,6 +88,13 @@ function normalizeState() {
     id: truck.id || crypto.randomUUID(),
     name: truck.name || 'شاحنة',
     rate: safeNumber(truck.rate, 0)
+  }));
+
+  state.companyExpenses = (state.companyExpenses || []).map(expense => ({
+    id: expense.id || crypto.randomUUID(),
+    name: expense.name || 'مصروف الشركة',
+    amount: safeNumber(expense.amount, 0),
+    date: expense.date || new Date().toISOString().slice(0, 10)
   }));
 
   normalizeDiggers();
@@ -529,8 +537,44 @@ function renderWorkerExpensesView() {
   }).join('');
 }
 
+function renderCompanyExpenses() {
+  const list = qs('#companyExpenseList');
+  if (!list) return;
+
+  const expenses = [...(state.companyExpenses || [])].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const total = expenses.reduce((sum, item) => sum + safeNumber(item.amount, 0), 0);
+
+  if (!expenses.length) {
+    list.innerHTML = '<div class="empty-state"><span>✦</span><strong>لا توجد مصاريف للشركة</strong><p>أضف أول مصروف من هذا القسم لتتبع التكاليف.</p></div>';
+    return;
+  }
+
+  list.innerHTML = `
+    <div class="company-expense-table">
+      <div class="company-expense-head">
+        <span>اسم المصروف</span>
+        <span>السعر</span>
+        <span>المجموع</span>
+        <span></span>
+      </div>
+      ${expenses.map(item => `
+        <div class="company-expense-row">
+          <span>${escapeAttribute(item.name || 'مصروف الشركة')}</span>
+          <span>${money(safeNumber(item.amount, 0))}</span>
+          <span>${money(safeNumber(item.amount, 0))}</span>
+          <button type="button" class="remove-company-expense" data-remove-company-expense="${item.id}" title="حذف المصروف">×</button>
+        </div>
+      `).join('')}
+      <div class="company-expense-total">
+        <strong>المجموع الكلي</strong>
+        <b>${money(total)}</b>
+      </div>
+    </div>
+  `;
+}
+
 function renderSummary() {
-  const totals = { workers: 0, workerExpenses: 0, diggers: 0, trucks: 0 };
+  const totals = { workers: 0, workerExpenses: 0, diggers: 0, trucks: 0, companyExpenses: 0 };
   const units = { workers: 0, workerExpenses: 0, diggers: 0, trucks: 0 };
 
   state.entries.filter(entry => entry.month === currentMonthKey()).forEach(entry => {
@@ -551,6 +595,8 @@ function renderSummary() {
     totals.workerExpenses += monthlyExpenses.reduce((sum, item) => sum + safeNumber(item.amount, 0), 0);
     units.workerExpenses += monthlyExpenses.length;
   });
+
+  totals.companyExpenses = (state.companyExpenses || []).reduce((sum, item) => sum + safeNumber(item.amount, 0), 0);
 
   qs('#workerTotal').textContent = money(totals.workers);
   qs('#workerExpenseTotal').textContent = money(totals.workerExpenses);
@@ -577,6 +623,7 @@ function render() {
   renderMonths();
   ['workers', 'diggers', 'trucks'].forEach(renderPeople);
   renderWorkerExpenses();
+  renderCompanyExpenses();
   renderWorkerExpensesView();
   renderSummary();
   save();
@@ -606,6 +653,18 @@ function addWorkerExpenseForWorker(workerId) {
   const worker = state.workers.find(item => item.id === workerId);
   if (!worker) return;
   addWorkerExpense(worker.id);
+}
+
+function openCompanyExpenseModal() {
+  const form = qs('#companyExpenseForm');
+  if (!form) return;
+  qs('#companyExpenseName').value = '';
+  qs('#companyExpenseAmount').value = '0';
+  qs('#companyExpenseModal').classList.add('open');
+}
+
+function addCompanyExpense() {
+  openCompanyExpenseModal();
 }
 
 function addPerson(type) {
@@ -687,6 +746,7 @@ document.addEventListener('click', event => {
 
   if (event.target.closest('[data-close-modal]')) qs('#entryModal').classList.remove('open');
   if (event.target.closest('[data-close-worker-expense]')) qs('#workerExpenseModal').classList.remove('open');
+  if (event.target.closest('[data-close-company-expense]')) qs('#companyExpenseModal').classList.remove('open');
   if (event.target.closest('[data-close-settings]')) qs('#settingsModal').classList.remove('open');
   if (event.target.closest('[data-close-export]')) qs('#exportModal').classList.remove('open');
 
@@ -745,6 +805,28 @@ qs('#workerExpenseForm').addEventListener('submit', event => {
   showToast(`تم تسجيل مصروف ${worker.name} بقيمة ${money(amount)}`);
 });
 
+qs('#companyExpenseForm').addEventListener('submit', event => {
+  event.preventDefault();
+  const name = String(qs('#companyExpenseName').value || '').trim();
+  const amount = Number(qs('#companyExpenseAmount').value) || 0;
+
+  if (!name) {
+    showToast('اكتب اسم المصروف');
+    return;
+  }
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    showToast('أدخل سعرًا صحيحًا أكبر من صفر');
+    return;
+  }
+
+  state.companyExpenses = state.companyExpenses || [];
+  state.companyExpenses.push({ id: crypto.randomUUID(), name, amount, date: new Date().toISOString().slice(0, 10) });
+  qs('#companyExpenseModal').classList.remove('open');
+  render();
+  showToast(`تم تسجيل مصروف الشركة: ${name} بقيمة ${money(amount)}`);
+});
+
 qs('#entryForm').addEventListener('submit', event => {
   event.preventDefault();
   const type = qs('#entryType').value;
@@ -789,6 +871,12 @@ document.addEventListener('click', event => {
     return;
   }
 
+  const addCompanyButton = event.target.closest('#addCompanyExpense');
+  if (addCompanyButton) {
+    addCompanyExpense();
+    return;
+  }
+
   const addExpenseViewButton = event.target.closest('[data-add-worker-expense-view]');
   if (addExpenseViewButton) {
     addWorkerExpense();
@@ -808,6 +896,14 @@ document.addEventListener('click', event => {
     worker.personalExpenses = (worker.personalExpenses || []).filter(item => item.id !== removeExpenseTrigger.dataset.removeExpense);
     render();
     showToast('تم حذف المصروف');
+    return;
+  }
+
+  const removeCompanyExpenseTrigger = event.target.closest('[data-remove-company-expense]');
+  if (removeCompanyExpenseTrigger) {
+    state.companyExpenses = (state.companyExpenses || []).filter(item => item.id !== removeCompanyExpenseTrigger.dataset.removeCompanyExpense);
+    render();
+    showToast('تم حذف مصروف الشركة');
     return;
   }
 
