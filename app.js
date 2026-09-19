@@ -554,6 +554,7 @@ function renderCompanyExpenses() {
       <div class="company-expense-head">
         <span>اسم المصروف</span>
         <span>السعر</span>
+        <span>التاريخ</span>
         <span>المجموع</span>
         <span></span>
       </div>
@@ -561,6 +562,7 @@ function renderCompanyExpenses() {
         <div class="company-expense-row">
           <span>${escapeAttribute(item.name || 'مصروف الشركة')}</span>
           <span>${money(safeNumber(item.amount, 0))}</span>
+          <span>${item.date || '-'}</span>
           <span>${money(safeNumber(item.amount, 0))}</span>
           <button type="button" class="remove-company-expense" data-remove-company-expense="${item.id}" title="حذف المصروف">×</button>
         </div>
