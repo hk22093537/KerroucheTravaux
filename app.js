@@ -698,6 +698,9 @@ function openEntry(type = 'workers', personId = '') {
   qs('#entryDate').value = new Date().toISOString().slice(0, 10);
   const select = qs('#entryPerson');
   select.innerHTML = state[type].map(p => `<option value="${p.id}" ${p.id === personId ? 'selected' : ''}>${p.name}</option>`).join('');
+  if (type === 'workers') {
+    qs('#entryAttendance').value = '1';
+  }
   updateEntryLabels();
 }
 
@@ -835,7 +838,7 @@ qs('#entryForm').addEventListener('submit', event => {
   const personId = qs('#entryPerson').value;
   const date = qs('#entryDate').value;
   const person = state[type].find(item => item.id === personId);
-  const attendance = type === 'workers' ? Number(qs('#entryAttendance').value) : 1;
+  const attendance = type === 'workers' ? Math.max(0, Number(qs('#entryAttendance').value) || 0) : 1;
   const overtimeHours = type === 'workers' ? Number(qs('#entryOvertime').value) || 0 : 0;
   const amount = type === 'workers' ? attendance : Number(qs('#entryAmount').value) || 0;
 
