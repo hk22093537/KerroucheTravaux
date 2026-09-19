@@ -8,7 +8,7 @@ const safeNumber = (value, fallback = 0) => {
 };
 
 let selectedMonth = new Date();
-const defaults = { workers: [['العامل ١',1800],['العامل ٢',1800],['العامل ٣',1800],['العامل ٤',1800],['العامل ٥',1800],['العامل ٦',1800]], diggers: [['حفار ١',350],['حفار ٢',350],['حفار ٣',350],['حفار ٤',350]], trucks: [['الشاحنة ٠١',0],['الشاحنة ٠٢',0]], companyExpenses: [] };
+const defaults = { workers: [['السائق ١',1800],['السائق ٢',1800],['السائق ٣',1800],['السائق ٤',1800],['السائق ٥',1800],['السائق ٦',1800]], diggers: [['حفار ١',350],['حفار ٢',350],['حفار ٣',350],['حفار ٤',350]], trucks: [['الشاحنة ٠١',0],['الشاحنة ٠٢',0]], companyExpenses: [] };
 
 function loadInitialState() {
   try {
@@ -32,6 +32,13 @@ function loadInitialState() {
 let state = loadInitialState();
 const currentMonthKey = () => monthKey(selectedMonth);
 const currentMonthLabel = () => `${monthNames[selectedMonth.getMonth()]} ${arabicDigits(selectedMonth.getFullYear())}`;
+const localDateKey = date => {
+  const current = new Date(date);
+  const year = current.getFullYear();
+  const month = String(current.getMonth() + 1).padStart(2, '0');
+  const day = String(current.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 const qs = selector => document.querySelector(selector);
 
 function normalizeDiggers() {
@@ -69,7 +76,7 @@ function normalizeState() {
 
   state.workers = (state.workers || []).map(worker => ({
     id: worker.id || crypto.randomUUID(),
-    name: worker.name || 'عامل',
+    name: worker.name || 'سائق',
     rate: safeNumber(worker.rate, 0),
     monthlySalary: safeNumber(worker.monthlySalary, 0),
     workDays: safeNumber(worker.workDays, 0),
@@ -282,9 +289,9 @@ function entriesFor(type, id) {
 
 function renderExportOptions() {
   qs('#exportMonth').textContent = currentMonthLabel();
-  qs('#exportPeople').innerHTML = Object.keys({ workers: 'العمال', diggers: 'الحفارات', trucks: 'الشاحنات' }).map(type => `
+  qs('#exportPeople').innerHTML = Object.keys({ workers: 'السائقون', diggers: 'الحفارات', trucks: 'الشاحنات' }).map(type => `
     <fieldset class="export-group">
-      <legend><label><input type="checkbox" class="export-category" data-export-type="${type}" checked> ${type === 'workers' ? 'العمال' : type === 'diggers' ? 'الحفارات' : 'الشاحنات'}</label></legend>
+      <legend><label><input type="checkbox" class="export-category" data-export-type="${type}" checked> ${type === 'workers' ? 'السائقون' : type === 'diggers' ? 'الحفارات' : 'الشاحنات'}</label></legend>
       ${state[type].map(person => `<label class="export-person"><input type="checkbox" class="export-person-check" data-export-type="${type}" data-export-person="${person.id}" checked> ${person.name}</label>`).join('')}
     </fieldset>
   `).join('');
@@ -303,7 +310,7 @@ function downloadExport() {
   }
 
   const key = currentMonthKey();
-  const rows = [['كشف شهري لشهر ' + currentMonthLabel()], [''], ['اسم العامل', 'عدد يام العمل', 'اليومية', 'الساعات الضافية', 'ثمن الساعة', 'التسبيق', 'صافي الدفع']];
+  const rows = [['كشف شهري لشهر ' + currentMonthLabel()], [''], ['اسم السائق', 'عدد أيام العمل', 'اليومية', 'الساعات الضافية', 'ثمن الساعة', 'التسبيق', 'صافي الدفع']];
   Object.keys(selected).forEach(type => {
     if (type !== 'workers') return;
     selected[type].forEach(id => {
@@ -314,13 +321,14 @@ function downloadExport() {
       const dailyRate = Number(person.rate) || 0;
       const overtimeRate = Number(person.overtimeRate) || 0;
       const advance = Number(person.advance) || 0;
+      const expenseTotal = workerMonthlyPersonalExpenseTotal(person.id, key);
       const dailyTotal = days * dailyRate;
       const overtimeTotal = overtimeHours * overtimeRate;
-      const net = dailyTotal + overtimeTotal - advance;
-      rows.push([person.name, days, dailyRate, overtimeHours, overtimeRate, advance, net]);
+      const net = dailyTotal + overtimeTotal - advance - expenseTotal;
+      rows.push([person.name, days, dailyRate, overtimeHours, overtimeRate, advance + expenseTotal, net]);
     });
   });
-  if (rows.length === 3) rows.push(['لا توجد بيانات للعاملين في هذا الشهر']);
+  if (rows.length === 3) rows.push(['لا توجد بيانات للسائقين في هذا الشهر']);
   const csv = '\ufeff' + rows.map(row => row.map(csvCell).join(';')).join('\r\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement('a');
@@ -330,6 +338,40 @@ function downloadExport() {
   URL.revokeObjectURL(link.href);
   qs('#exportModal').classList.remove('open');
   showToast('تم تصدير ملف Excel');
+}
+
+function activateView(viewName = 'workers') {
+  const expenseSubnav = qs('#expenseSubnav');
+  const machineSubnav = qs('#machineSubnav');
+  const isExpensesView = viewName === 'expenses';
+  const isExpenseSubView = viewName === 'workerExpenses' || viewName === 'companyExpenses';
+  const isMachinesView = viewName === 'machines';
+  const isMachineSubView = viewName === 'diggers' || viewName === 'trucks';
+
+  document.querySelectorAll('.nav-item, .nav-subitem').forEach(item => {
+    const active = item.dataset.view === viewName;
+    item.classList.toggle('active', active);
+  });
+
+  if (expenseSubnav) {
+    expenseSubnav.classList.toggle('open', isExpensesView || isExpenseSubView);
+  }
+
+  if (machineSubnav) {
+    machineSubnav.classList.toggle('open', isMachinesView || isMachineSubView);
+  }
+
+  if (viewName === 'expenses' || viewName === 'machines') {
+    document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+    qs('#pageLabel').textContent = viewName === 'expenses' ? 'المصاريف' : 'الآلات';
+    qs('#sidebar').classList.remove('open');
+    return;
+  }
+
+  const viewKey = viewName in { dashboard: 1, workers: 1, workerExpenses: 1, companyExpenses: 1, diggers: 1, trucks: 1 } ? viewName : 'workers';
+  document.querySelectorAll('.view').forEach(view => view.classList.toggle('active', view.id === `${viewKey}View`));
+  qs('#pageLabel').textContent = viewKey === 'dashboard' ? 'لوحة المتابعة' : viewKey === 'workers' ? 'السائقون' : viewKey === 'workerExpenses' ? 'مصاريف السائقين' : viewKey === 'companyExpenses' ? 'مصاريف الشركة' : viewKey === 'diggers' ? 'الحفارات' : 'الشاحنات';
+  qs('#sidebar').classList.remove('open');
 }
 
 function renderMonths() {
@@ -351,16 +393,18 @@ function renderPeople(type) {
       const overtimeTotal = workerEntryOvertime(person.id);
       const workDays = safeNumber(person.workDays) || attendanceTotal;
       const overtimeHours = safeNumber(person.overtimeHours) || overtimeTotal;
-      const total = (workDays * safeNumber(person.rate)) + (overtimeHours * safeNumber(person.overtimeRate)) - safeNumber(person.advance);
+      const expenseTotal = workerMonthlyPersonalExpenseTotal(person.id);
+      const totalAdvance = safeNumber(person.advance) + expenseTotal;
+      const total = (workDays * safeNumber(person.rate)) + (overtimeHours * safeNumber(person.overtimeRate)) - totalAdvance;
 
       const html = `
         <article class="person-card">
           <div class="card-header">
             <div>
               <input class="edit-name" type="text" data-id="${person.id}" value="${person.name}">
-              <small>عامل يومي</small>
+              <small>سائق</small>
             </div>
-            <button class="remove-person" type="button" data-remove-person="workers" data-person="${person.id}" title="حذف العامل">×</button>
+            <button class="remove-person" type="button" data-remove-person="workers" data-person="${person.id}" title="حذف السائق">×</button>
           </div>
           <div class="worker-fields">
             <label>الراتب الشهري<input type="number" min="0" data-field="monthlySalary" data-id="${person.id}" value="${person.monthlySalary}"><small>دج</small></label>
@@ -368,7 +412,7 @@ function renderPeople(type) {
             <label>اليومية<input type="number" min="0" data-field="rate" data-id="${person.id}" value="${person.rate}"><small>دج</small></label>
             <label>الساعات الضافية<input type="number" min="0" step="0.5" data-field="overtimeHours" data-id="${person.id}" value="${overtimeHours}" data-worker-overtime-list="${person.id}" title="اضغط لعرض ساعات ضافية يومية"><small>ساعة</small></label>
             <label>ثمن الساعة<input type="number" min="0" data-field="overtimeRate" data-id="${person.id}" value="${person.overtimeRate}"><small>دج</small></label>
-            <label>التسبيقة<input type="number" min="0" data-field="advance" data-id="${person.id}" value="${person.advance}"><small>دج</small></label>
+            <label>التسبيقة<input type="number" min="0" data-field="advance" data-id="${person.id}" value="${totalAdvance}" readonly><small>دج</small></label>
           </div>
           <div class="total-row">
             <span>الجمالي</span>
@@ -465,7 +509,7 @@ function renderWorkerExpenses() {
       </div>
       <b>${money(safeNumber(item.amount, 0))}</b>
     </div>
-  `).join('') : `<div class="empty-state"><span>✦</span><strong>لا توجد مصروفات للعمال</strong><p>اختر “إضافة مصروف عامل” لتسجيل مصروف جديد.</p></div>`;
+  `).join('') : `<div class="empty-state"><span>✦</span><strong>لا توجد مصروفات للسائقين</strong><p>اختر “إضافة مصروف سائق” لتسجيل مصروف جديد.</p></div>`;
 }
 
 function escapeAttribute(value = '') {
@@ -484,57 +528,150 @@ function getWorkerMonthExpenses(workerId, month = currentMonthKey()) {
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 }
 
+function workerMonthlyPersonalExpenseTotal(workerId, month = currentMonthKey()) {
+  return getWorkerMonthExpenses(workerId, month).reduce((sum, item) => sum + safeNumber(item.amount, 0), 0);
+}
+
 function renderWorkerExpensesView() {
   const grid = qs('#workerExpensesGrid');
   if (!grid) return;
 
-  if (!state.workers.length) {
-    grid.innerHTML = '<article class="person-card"><div class="empty-state"><span>✦</span><strong>لا توجد عمال مسجلين</strong><p>أضف عاملًا أولاً قبل تسجيل المصروفات.</p></div></article>';
-    return;
-  }
+  const workerCards = state.workers.length
+    ? state.workers.map(worker => {
+        const expenses = getWorkerMonthExpenses(worker.id);
+        const total = expenses.reduce((sum, item) => sum + safeNumber(item.amount, 0), 0);
 
-  grid.innerHTML = state.workers.map(worker => {
-    const expenses = getWorkerMonthExpenses(worker.id);
-    const total = expenses.reduce((sum, item) => sum + safeNumber(item.amount, 0), 0);
+        const list = expenses.length
+          ? expenses.map(item => `
+              <div class="activity-row">
+                <div class="row-field">
+                  <label>التاريخ
+                    <input type="date" value="${item.date || ''}" data-expense-date="${item.id}" data-worker-id="${worker.id}">
+                  </label>
+                </div>
+                <div class="row-field">
+                  <label>المبلغ
+                    <input type="number" min="0" step="0.01" value="${safeNumber(item.amount, 0)}" data-expense-amount="${item.id}" data-worker-id="${worker.id}">
+                  </label>
+                </div>
+                <div class="row-field row-field-wide">
+                  <label>سبب المصروف
+                    <input type="text" value="${escapeAttribute(item.note || 'مصروف شخصي')}" data-expense-note="${item.id}" data-worker-id="${worker.id}">
+                  </label>
+                </div>
+                <button class="remove-expense" type="button" data-remove-expense="${item.id}" data-worker-id="${worker.id}" title="حذف المصروف">×</button>
+              </div>
+            `).join('')
+          : '<div class="empty-state compact"><span>✦</span><strong>لا توجد مصروفات لهذا الشهر</strong></div>';
 
-    const list = expenses.length
-      ? expenses.map(item => `
-          <div class="activity-row">
-            <div class="row-field">
-              <label>التاريخ
-                <input type="date" value="${item.date || ''}" data-expense-date="${item.id}" data-worker-id="${worker.id}">
-              </label>
+        return `
+          <article class="person-card">
+            <div class="card-header">
+              <div>
+                <strong>${escapeAttribute(worker.name)}</strong>
+                <small>مجموع هذا الشهر: ${money(total)}</small>
+              </div>
+              <button class="primary-button small-button" type="button" data-add-expense-for-worker="${worker.id}">＋ إضافة</button>
             </div>
-            <div class="row-field">
-              <label>المبلغ
-                <input type="number" min="0" step="0.01" value="${safeNumber(item.amount, 0)}" data-expense-amount="${item.id}" data-worker-id="${worker.id}">
-              </label>
+            <div class="expense-table">
+              ${list}
             </div>
-            <div class="row-field row-field-wide">
-              <label>سبب المصروف
-                <input type="text" value="${escapeAttribute(item.note || 'مصروف شخصي')}" data-expense-note="${item.id}" data-worker-id="${worker.id}">
-              </label>
-            </div>
-            <button class="remove-expense" type="button" data-remove-expense="${item.id}" data-worker-id="${worker.id}" title="حذف المصروف">×</button>
-          </div>
-        `).join('')
-      : '<div class="empty-state compact"><span>✦</span><strong>لا توجد مصروفات لهذا الشهر</strong></div>';
+          </article>
+        `;
+      }).join('')
+    : '<article class="person-card"><div class="empty-state"><span>✦</span><strong>لا توجد سائقين مسجلين</strong><p>أضف سائقًا أولاً قبل تسجيل المصروفات.</p></div></article>';
 
-    return `
-      <article class="person-card">
-        <div class="card-header">
+  const companyExpenses = [...(state.companyExpenses || [])].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const companyTotal = companyExpenses.reduce((sum, item) => sum + safeNumber(item.amount, 0), 0);
+  const companyList = companyExpenses.length
+    ? companyExpenses.map(item => `
+        <div class="activity-row">
           <div>
-            <strong>${escapeAttribute(worker.name)}</strong>
-            <small>مجموع هذا الشهر: ${money(total)}</small>
+            <strong>${escapeAttribute(item.name || 'مصروف الشركة')}</strong>
+            <small>${item.date || '-'}</small>
           </div>
-          <button class="primary-button small-button" type="button" data-add-expense-for-worker="${worker.id}">＋ إضافة</button>
+          <b>${money(safeNumber(item.amount, 0))}</b>
+          <button type="button" class="remove-company-expense" data-remove-company-expense="${item.id}" title="حذف المصروف">×</button>
         </div>
-        <div class="expense-table">
-          ${list}
+      `).join('')
+    : '<div class="empty-state compact"><span>✦</span><strong>لا توجد مصاريف للشركة</strong></div>';
+
+  grid.innerHTML = `
+    <div class="expense-section-block">
+      <details class="expense-details" open>
+        <summary>
+          <div class="summary-content">
+            <div>
+              <p class="eyebrow">مصاريف السائقين</p>
+              <h2>سجل المصروفات</h2>
+            </div>
+            <button class="text-button" type="button" data-add-worker-expense-view>＋ إضافة مصروف</button>
+          </div>
+        </summary>
+        ${workerCards}
+      </details>
+    </div>
+    <div class="expense-section-block">
+      <details class="expense-details">
+        <summary>
+          <div class="summary-content">
+            <div>
+              <p class="eyebrow">مصاريف الشركة</p>
+              <h2>قائمة المصاريف</h2>
+            </div>
+            <button class="text-button" type="button" id="addCompanyExpense">＋ إضافة مصروف</button>
+          </div>
+        </summary>
+        <article class="person-card">
+          <div class="card-header">
+            <div>
+              <strong>مصاريف الشركة</strong>
+              <small>مجموع هذا الشهر: ${money(companyTotal)}</small>
+            </div>
+            <button class="primary-button small-button" type="button" id="addCompanyExpense">＋ إضافة</button>
+          </div>
+          <div class="expense-table">
+            ${companyList}
+          </div>
+        </article>
+      </details>
+    </div>
+  `;
+}
+
+function renderCompanyExpensesView() {
+  const grid = qs('#companyExpensesGrid');
+  if (!grid) return;
+
+  const expenses = [...(state.companyExpenses || [])]
+    .filter(item => (item.date || '').slice(0, 7) === currentMonthKey())
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  const total = expenses.reduce((sum, item) => sum + safeNumber(item.amount, 0), 0);
+
+  grid.innerHTML = expenses.length ? `
+    <article class="person-card">
+      <div class="card-header">
+        <div>
+          <strong>مصاريف الشركة</strong>
+          <small>مجموع هذا الشهر: ${money(total)}</small>
         </div>
-      </article>
-    `;
-  }).join('');
+        <button class="primary-button small-button" type="button" id="addCompanyExpense">＋ إضافة</button>
+      </div>
+      <div class="expense-table">
+        ${expenses.map(item => `
+          <div class="activity-row">
+            <div>
+              <strong>${escapeAttribute(item.name || 'مصروف الشركة')}</strong>
+              <small>${item.date || '-'}</small>
+            </div>
+            <b>${money(safeNumber(item.amount, 0))}</b>
+            <button type="button" class="remove-company-expense" data-remove-company-expense="${item.id}" title="حذف المصروف">×</button>
+          </div>
+        `).join('')}
+      </div>
+    </article>
+  ` : '<article class="person-card"><div class="empty-state"><span>✦</span><strong>لا توجد مصاريف للشركة</strong><p>أضف أول مصروف من هذا القسم لتتبع التكاليف.</p></div></article>';
 }
 
 function renderCompanyExpenses() {
@@ -590,7 +727,8 @@ function renderSummary() {
   state.workers.forEach(worker => {
     const attendanceDays = workerEntryAttendance(worker.id, currentMonthKey());
     const overtimeHours = workerEntryOvertime(worker.id, currentMonthKey());
-    totals.workers += safeNumber(worker.monthlySalary) > 0 ? safeNumber(worker.monthlySalary) : (attendanceDays * safeNumber(worker.rate)) + (overtimeHours * safeNumber(worker.overtimeRate)) - safeNumber(worker.advance);
+    const personalExpenseTotal = workerMonthlyPersonalExpenseTotal(worker.id, currentMonthKey());
+    totals.workers += (attendanceDays * safeNumber(worker.rate)) + (overtimeHours * safeNumber(worker.overtimeRate)) - safeNumber(worker.advance) - personalExpenseTotal;
     units.workers += attendanceDays;
 
     const monthlyExpenses = (worker.personalExpenses || []).filter(item => (item.date || '').slice(0, 7) === currentMonthKey());
@@ -627,6 +765,7 @@ function render() {
   renderWorkerExpenses();
   renderCompanyExpenses();
   renderWorkerExpensesView();
+  renderCompanyExpensesView();
   renderSummary();
   save();
   syncToSupabase();
@@ -645,7 +784,7 @@ function openWorkerExpenseModal(personId = '') {
 
 function addWorkerExpense(personId = '') {
   if (!state.workers.length) {
-    showToast('لا توجد عمال مسجلين حتى الآن');
+    showToast('لا توجد سائقين مسجلين حتى الآن');
     return;
   }
   openWorkerExpenseModal(personId);
@@ -661,6 +800,7 @@ function openCompanyExpenseModal() {
   const form = qs('#companyExpenseForm');
   if (!form) return;
   qs('#companyExpenseName').value = '';
+  qs('#companyExpenseDate').value = new Date().toISOString().slice(0, 10);
   qs('#companyExpenseAmount').value = '0';
   qs('#companyExpenseModal').classList.add('open');
 }
@@ -672,7 +812,7 @@ function addCompanyExpense() {
 function addPerson(type) {
   const person = {
     id: crypto.randomUUID(),
-    name: type === 'trucks' ? `الشاحنة ${arabicDigits(state.trucks.length + 1)}` : `العامل ${arabicDigits(state.workers.length + 1)}`,
+    name: type === 'trucks' ? `الشاحنة ${arabicDigits(state.trucks.length + 1)}` : `السائق ${arabicDigits(state.workers.length + 1)}`,
     rate: type === 'trucks' ? 0 : 1800,
     ...(type === 'workers' ? { monthlySalary: 0, workDays: 0, overtimeHours: 0, overtimeRate: 0, advance: 0 } : {}),
     ...(type === 'diggers' ? { serviceHours: 0, oilThreshold: 230, oilWarningThreshold: 210, oilChanges: [] } : {})
@@ -680,7 +820,7 @@ function addPerson(type) {
 
   state[type].push(person);
   render();
-  showToast(type === 'trucks' ? 'تمت ضافة شاحنة جديدة' : type === 'diggers' ? 'تمت ضافة حفارة جديدة' : 'تمت ضافة عامل جديد');
+  showToast(type === 'trucks' ? 'تمت إضافة شاحنة جديدة' : type === 'diggers' ? 'تمت إضافة حفارة جديدة' : 'تمت إضافة سائق جديد');
 }
 
 function removePerson(type, id) {
@@ -690,6 +830,67 @@ function removePerson(type, id) {
   state.entries = state.entries.filter(entry => entry.personId !== id);
   render();
   showToast('تم حذف العنصر');
+}
+
+function buildWorkerCalendar(dateValue = new Date().toISOString().slice(0, 10)) {
+  const monthDate = new Date(dateValue);
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const grid = qs('#workerCalendarGrid');
+  const monthLabel = `${monthNames[month]} ${arabicDigits(year)}`;
+
+  qs('#workerCalendarMonth').textContent = monthLabel;
+
+  const selectedPersonId = qs('#entryPerson').value;
+  const monthKeyValue = `${year}-${String(month + 1).padStart(2, '0')}`;
+  const personEntries = state.entries.filter(entry => entry.type === 'workers' && entry.personId === selectedPersonId && entry.month === monthKeyValue);
+  const dayMap = new Map(personEntries.map(entry => [entry.date, entry]));
+
+  const weekdayNames = ['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
+  const leadingEmpty = firstDay.getDay();
+  const daysInMonth = lastDay.getDate();
+  const cells = [];
+
+  weekdayNames.forEach(dayName => {
+    cells.push(`<div class="calendar-weekday">${dayName}</div>`);
+  });
+
+  for (let i = 0; i < leadingEmpty; i++) {
+    cells.push('<div class="calendar-empty"></div>');
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const current = new Date(year, month, day);
+    const iso = localDateKey(current);
+    const entry = dayMap.get(iso);
+    const attended = Boolean(entry && safeNumber(entry.attendance ?? entry.amount, 0) > 0);
+    const overtime = safeNumber(entry?.overtimeHours ?? 0, 0);
+    cells.push(`
+      <label class="calendar-day ${attended ? 'present' : ''}">
+        <span class="day-number">${arabicDigits(day)}</span>
+        <input type="checkbox" class="calendar-check" data-calendar-date="${iso}" ${attended ? 'checked' : ''}>
+        <input type="text" class="calendar-overtime" data-calendar-overtime="${iso}" value="${overtime}" placeholder="ساعات" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*">
+      </label>
+    `);
+  }
+
+  while (cells.length % 7 !== 0) {
+    cells.push('<div class="calendar-empty"></div>');
+  }
+
+  grid.innerHTML = cells.join('');
+  updateCalendarTotals();
+}
+
+function updateCalendarTotals() {
+  const checks = document.querySelectorAll('.calendar-check:checked');
+  const overtime = [...document.querySelectorAll('.calendar-overtime')].reduce((sum, input) => sum + safeNumber(input.value, 0), 0);
+  qs('#calendarAttendanceTotal').textContent = arabicDigits(checks.length);
+  qs('#calendarOvertimeTotal').textContent = arabicDigits(overtime);
+  qs('#entryAttendance').value = String(checks.length);
+  qs('#entryOvertime').value = String(overtime);
 }
 
 function openEntry(type = 'workers', personId = '') {
@@ -709,14 +910,19 @@ function updateEntryLabels() {
   const workerFields = qs('#workerEntryFields');
   const amountLabel = qs('#amountLabel');
   const amountInput = amountLabel.querySelector('input');
+  const workerCalendarSection = qs('#workerCalendarSection');
   const isWorker = type === 'workers';
   workerFields.style.display = isWorker ? 'grid' : 'none';
+  workerCalendarSection.style.display = isWorker ? 'block' : 'none';
   amountLabel.style.display = isWorker ? 'none' : 'block';
   qs('#amountLabel').firstChild.textContent = type === 'workers' ? 'عدد اليام' : type === 'diggers' ? 'عدد الساعات' : 'عدد الحمولات';
   amountInput.min = type === 'trucks' ? '1' : '0';
   amountInput.step = type === 'trucks' ? '1' : '0.5';
   amountInput.value = isWorker ? '1' : amountInput.value;
   qs('#modalTitle').textContent = type === 'workers' ? 'تسجيل حضور' : type === 'diggers' ? 'تسجيل ساعات الحفارات' : 'تسجيل حمولات';
+  if (isWorker) {
+    buildWorkerCalendar(qs('#entryDate').value);
+  }
 }
 
 function notifyDueDiggers() {
@@ -729,10 +935,7 @@ function notifyDueDiggers() {
 document.addEventListener('click', event => {
   const view = event.target.closest('[data-view]');
   if (view) {
-    document.querySelectorAll('.nav-item').forEach(x => x.classList.toggle('active', x.dataset.view === view.dataset.view));
-    document.querySelectorAll('.view').forEach(x => x.classList.toggle('active', x.id === `${view.dataset.view}View`));
-    qs('#pageLabel').textContent = view.dataset.view === 'dashboard' ? 'لوحة المتابعة' : view.dataset.view === 'workers' ? 'العمال اليوميون' : view.dataset.view === 'workerExpenses' ? 'مصاريف العمال' : view.dataset.view === 'diggers' ? 'الحفارات' : 'الشاحنات';
-    qs('#sidebar').classList.remove('open');
+    activateView(view.dataset.view);
   }
 
   const add = event.target.closest('[data-add-person]');
@@ -780,6 +983,30 @@ qs('#entryType').addEventListener('change', () => {
   updateEntryLabels();
 });
 
+qs('#entryPerson').addEventListener('change', () => {
+  if (qs('#entryType').value === 'workers') {
+    buildWorkerCalendar(qs('#entryDate').value);
+  }
+});
+
+qs('#entryDate').addEventListener('change', () => {
+  if (qs('#entryType').value === 'workers') {
+    buildWorkerCalendar(qs('#entryDate').value);
+  }
+});
+
+document.addEventListener('change', event => {
+  if (event.target.matches('.calendar-check, .calendar-overtime')) {
+    const checks = [...document.querySelectorAll('.calendar-check')];
+    const totalPresent = checks.filter(input => input.checked).length;
+    const totalOvertime = [...document.querySelectorAll('.calendar-overtime')].reduce((sum, input) => sum + safeNumber(input.value, 0), 0);
+    qs('#entryAttendance').value = String(totalPresent);
+    qs('#entryOvertime').value = String(totalOvertime);
+    qs('#calendarAttendanceTotal').textContent = arabicDigits(totalPresent);
+    qs('#calendarOvertimeTotal').textContent = arabicDigits(totalOvertime);
+  }
+});
+
 qs('#workerExpenseForm').addEventListener('submit', event => {
   event.preventDefault();
   const workerId = qs('#expenseWorker').value;
@@ -789,7 +1016,7 @@ qs('#workerExpenseForm').addEventListener('submit', event => {
   const reason = String(qs('#expenseReason').value || '').trim();
 
   if (!worker) {
-    showToast('اختر عاملًا صحيحًا');
+    showToast('اختر سائقًا صحيحًا');
     return;
   }
 
@@ -813,10 +1040,16 @@ qs('#workerExpenseForm').addEventListener('submit', event => {
 qs('#companyExpenseForm').addEventListener('submit', event => {
   event.preventDefault();
   const name = String(qs('#companyExpenseName').value || '').trim();
+  const date = qs('#companyExpenseDate').value || new Date().toISOString().slice(0, 10);
   const amount = Number(qs('#companyExpenseAmount').value) || 0;
 
   if (!name) {
     showToast('اكتب اسم المصروف');
+    return;
+  }
+
+  if (!date) {
+    showToast('اختر تاريخ المصروف');
     return;
   }
 
@@ -826,7 +1059,7 @@ qs('#companyExpenseForm').addEventListener('submit', event => {
   }
 
   state.companyExpenses = state.companyExpenses || [];
-  state.companyExpenses.push({ id: crypto.randomUUID(), name, amount, date: new Date().toISOString().slice(0, 10) });
+  state.companyExpenses.push({ id: crypto.randomUUID(), name, amount, date });
   qs('#companyExpenseModal').classList.remove('open');
   render();
   showToast(`تم تسجيل مصروف الشركة: ${name} بقيمة ${money(amount)}`);
@@ -838,23 +1071,58 @@ qs('#entryForm').addEventListener('submit', event => {
   const personId = qs('#entryPerson').value;
   const date = qs('#entryDate').value;
   const person = state[type].find(item => item.id === personId);
+
+  if (type === 'workers') {
+    const selectedDate = qs('#entryDate').value;
+    const monthKeyValue = selectedDate.slice(0, 7);
+    const dailyEntries = state.entries.filter(entry => entry.type === 'workers' && entry.personId === personId && entry.month === monthKeyValue);
+    const checkedDates = [...document.querySelectorAll('.calendar-check:checked')].map(input => input.dataset.calendarDate);
+    const overtimeMap = [...document.querySelectorAll('.calendar-overtime')].reduce((acc, input) => {
+      acc[input.dataset.calendarOvertime] = safeNumber(input.value, 0);
+      return acc;
+    }, {});
+
+    dailyEntries.forEach(entry => {
+      if (!checkedDates.includes(entry.date)) {
+        state.entries = state.entries.filter(item => !(item.id === entry.id));
+      }
+    });
+
+    checkedDates.forEach(day => {
+      const existing = state.entries.find(entry => entry.type === 'workers' && entry.personId === personId && entry.date === day);
+      const attendanceValue = safeNumber(overtimeMap[day], 0) >= 0 ? 1 : 0;
+      const overtimeValue = safeNumber(overtimeMap[day], 0);
+      if (existing) {
+        existing.attendance = 1;
+        existing.amount = 1;
+        existing.overtimeHours = overtimeValue;
+        existing.month = day.slice(0, 7);
+      } else {
+        state.entries.push({ id: crypto.randomUUID(), type, personId, date: day, month: day.slice(0, 7), amount: 1, attendance: 1, overtimeHours: overtimeValue });
+      }
+    });
+
+    qs('#entryModal').classList.remove('open');
+    render();
+    showToast('تم حفظ حضور السائق بنجاح');
+    return;
+  }
+
   const attendance = type === 'workers' ? Math.max(0, Number(qs('#entryAttendance').value) || 0) : 1;
   const overtimeHours = type === 'workers' ? Number(qs('#entryOvertime').value) || 0 : 0;
   const amount = type === 'workers' ? attendance : Number(qs('#entryAmount').value) || 0;
 
-  if (type === 'workers') {
-    const existing = state.entries.find(entry => entry.type === 'workers' && entry.personId === personId && entry.date === date);
-    if (existing) {
-      existing.date = date;
-      existing.month = date.slice(0, 7);
-      existing.amount = attendance;
-      existing.attendance = attendance;
-      existing.overtimeHours = overtimeHours;
-      qs('#entryModal').classList.remove('open');
-      render();
-      showToast(attendance === 0 ? 'تم تعديل حالة العامل لى غائب' : 'تم تحديث حضور العامل بنجاح');
-      return;
-    }
+  const existing = state.entries.find(entry => entry.type === 'workers' && entry.personId === personId && entry.date === date);
+  if (type === 'workers' && existing) {
+    existing.date = date;
+    existing.month = date.slice(0, 7);
+    existing.amount = attendance;
+    existing.attendance = attendance;
+    existing.overtimeHours = overtimeHours;
+    qs('#entryModal').classList.remove('open');
+    render();
+    showToast(attendance === 0 ? 'تم تعديل حالة السائق إلى غائب' : 'تم تحديث حضور السائق بنجاح');
+    return;
   }
 
   state.entries.push({ id: crypto.randomUUID(), type, personId, date, month: date.slice(0, 7), amount, attendance, overtimeHours });
@@ -973,11 +1241,23 @@ document.addEventListener('change', event => {
   if (!person) return;
 
   if (event.target.dataset.field) {
+    if (event.target.dataset.field === 'monthlySalary') {
+      person.monthlySalary = Number(event.target.value) || 0;
+      render();
+      showToast('تم تحديث الراتب الشهري');
+      return;
+    }
     person[event.target.dataset.field] = Number(event.target.value);
   } else if (event.target.dataset.rate) {
     person.rate = Number(event.target.value);
   } else {
-    person.name = event.target.value;
+    const nextName = String(event.target.value || '').trim();
+    if (!nextName) {
+      event.target.value = person.name || 'سائق';
+      showToast('لا يمكن ترك اسم السائق فارغًا');
+      return;
+    }
+    person.name = nextName;
   }
 
   render();
@@ -1024,6 +1304,7 @@ if (config) {
 
 (async () => {
   await loadFromSupabase();
+  activateView('workers');
   render();
   notifyDueDiggers();
 })();
