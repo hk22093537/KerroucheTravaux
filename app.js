@@ -8,6 +8,8 @@ const safeNumber = (value, fallback = 0) => {
 };
 
 let selectedMonth = new Date();
+let selectedDiggerId = null;
+let selectedMachineSubView = 'all';
 const defaults = { workers: [['السائق ١',1800],['السائق ٢',1800],['السائق ٣',1800],['السائق ٤',1800],['السائق ٥',1800],['السائق ٦',1800]], diggers: [['حفار ١',350],['حفار ٢',350],['حفار ٣',350],['حفار ٤',350]], trucks: [['الشاحنة ٠١',0],['الشاحنة ٠٢',0]], companyExpenses: [] };
 
 function loadInitialState() {
@@ -38,6 +40,15 @@ const localDateKey = date => {
   const month = String(current.getMonth() + 1).padStart(2, '0');
   const day = String(current.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+const getMonthDateRange = monthKeyValue => {
+  const [year, month] = monthKeyValue.split('-').map(Number);
+  const lastDay = new Date(year, month, 0).getDate();
+  return Array.from({ length: lastDay }, (_, index) => {
+    const day = index + 1;
+    const date = new Date(year, month - 1, day);
+    return localDateKey(date);
+  });
 };
 const qs = selector => document.querySelector(selector);
 
@@ -107,7 +118,12 @@ function normalizeState() {
   normalizeDiggers();
 
   state.entries = (state.entries || []).map(entry => {
-    const normalized = { ...entry, amount: safeNumber(entry.amount, 0), month: entry.month || (entry.date || '').slice(0, 7) };
+    const normalized = {
+      ...entry,
+      amount: safeNumber(entry.amount, 0),
+      month: entry.month || (entry.date || '').slice(0, 7),
+      workType: entry.workType || entry.work_type || 'عام'
+    };
     if (entry.type === 'workers') {
       normalized.attendance = safeNumber(entry.attendance ?? (safeNumber(normalized.amount) > 0 ? 1 : 0), 0);
       normalized.overtimeHours = safeNumber(entry.overtimeHours, 0);
@@ -209,7 +225,7 @@ async function loadFromSupabase() {
         id: row.id, type: 'workers', personId: row.worker_id, date: row.entry_date, month: row.entry_date.slice(0, 7), amount: Number(row.days ?? 0), attendance: Number(row.attendance ?? (Number(row.days ?? 0) > 0 ? 1 : 0)), overtimeHours: Number(row.overtime_hours || 0)
       })),
       ...diggerEntries.map(row => ({
-        id: row.id, type: 'diggers', personId: row.digger_id, date: row.entry_date, month: row.entry_date.slice(0, 7), amount: Number(row.hours || 0)
+        id: row.id, type: 'diggers', personId: row.digger_id, date: row.entry_date, month: row.entry_date.slice(0, 7), amount: Number(row.hours || 0), workType: row.work_type || 'عام'
       })),
       ...truckEntries.map(row => ({
         id: row.id, type: 'trucks', personId: row.truck_id, date: row.entry_date, month: row.entry_date.slice(0, 7), amount: Number(row.loads || 0)
@@ -251,7 +267,7 @@ async function syncToSupabase() {
         grouped.workers.push({ ...row, worker_id: entry.personId, days: Number(entry.amount) || 0, attendance: Number(entry.attendance ?? (Number(entry.amount) > 0 ? 1 : 0)), overtime_hours: Number(entry.overtimeHours || 0) });
       }
       if (entry.type === 'diggers') {
-        grouped.diggers.push({ ...row, digger_id: entry.personId, hours: Number(entry.amount) || 0 });
+        grouped.diggers.push({ ...row, digger_id: entry.personId, hours: Number(entry.amount) || 0, work_type: entry.workType || 'عام' });
       }
       if (entry.type === 'trucks') {
         grouped.trucks.push({ ...row, truck_id: entry.personId, loads: Number(entry.amount) || 0 });
@@ -348,6 +364,10 @@ function activateView(viewName = 'workers') {
   const isMachinesView = viewName === 'machines';
   const isMachineSubView = viewName === 'diggers' || viewName === 'trucks';
 
+  if (viewName === 'machines') selectedMachineSubView = 'all';
+  if (viewName === 'diggers') selectedMachineSubView = 'diggers';
+  if (viewName === 'trucks') selectedMachineSubView = 'trucks';
+
   document.querySelectorAll('.nav-item, .nav-subitem').forEach(item => {
     const active = item.dataset.view === viewName;
     item.classList.toggle('active', active);
@@ -375,15 +395,185 @@ function activateView(viewName = 'workers') {
 }
 
 function renderMonths() {
-  qs('#dashboardMonth').textContent = currentMonthLabel();
+  const dashboardMonth = qs('#dashboardMonth');
+  if (dashboardMonth) dashboardMonth.textContent = currentMonthLabel();
   document.querySelectorAll('.current-month').forEach(el => el.textContent = currentMonthLabel());
-  qs('#workersCount').textContent = arabicDigits(state.workers.length);
-  qs('#trucksCount').textContent = arabicDigits(state.trucks.length);
+  const workersCount = qs('#workersCount');
+  if (workersCount) workersCount.textContent = arabicDigits(state.workers.length);
+  const trucksCount = qs('#trucksCount');
+  if (trucksCount) trucksCount.textContent = arabicDigits(state.trucks.length);
+}
+
+function renderMachineSubnav() {
+  const machineSubnav = qs('#machineSubnav');
+  if (!machineSubnav) return;
+
+  const diggerCategory = `
+    <button class="nav-subitem ${selectedMachineSubView === 'diggers' ? 'active' : ''}" data-view="diggers" type="button">
+      <span>🚜</span> الحفارات
+    </button>
+  `;
+
+  const truckCategory = `
+    <button class="nav-subitem ${selectedMachineSubView === 'trucks' ? 'active' : ''}" data-view="trucks" type="button">
+      <span>🚚</span> الشاحنات
+    </button>
+  `;
+
+  let diggerList = '';
+  if (selectedMachineSubView === 'diggers') {
+    diggerList = state.diggers.length
+      ? state.diggers.map(person => `
+          <button class="nav-subitem digger-subitem ${selectedDiggerId === person.id ? 'active' : ''}" type="button" data-digger-nav="${person.id}">
+            <span>🚜</span> ${person.name}
+          </button>
+        `).join('')
+      : '<button class="nav-subitem empty-subitem" type="button" disabled>لا توجد حفارات</button>';
+  }
+
+  machineSubnav.innerHTML = `
+    ${diggerCategory}
+    ${diggerList}
+    ${truckCategory}
+  `;
+}
+
+function getDiggerMonthRows(person, month = currentMonthKey()) {
+  const monthDates = getMonthDateRange(month);
+  const rate = safeNumber(person.rate, 0);
+  const entries = state.entries.filter(entry => entry.type === 'diggers' && entry.personId === person.id && entry.month === month);
+  const rows = monthDates.map(date => {
+    const dayEntries = entries.filter(entry => entry.date === date);
+    const totalHours = dayEntries.reduce((sum, entry) => sum + safeNumber(entry.amount, 0), 0);
+    const workTypes = [...new Set(dayEntries.map(entry => (entry.workType || 'عام').trim() || 'عام'))].join(' / ') || '—';
+    return {
+      date,
+      workType: workTypes,
+      hours: totalHours,
+      rate,
+      total: totalHours * rate
+    };
+  });
+
+  const total = rows.reduce((sum, row) => sum + row.total, 0);
+  return { rows, total };
+}
+
+function getOrCreateDiggerEntry(personId, date, fallbackType = 'حفر') {
+  const month = (date || '').slice(0, 7);
+  let entry = state.entries.find(item => item.type === 'diggers' && item.personId === personId && item.date === date);
+  if (!entry) {
+    entry = { id: crypto.randomUUID(), type: 'diggers', personId, date, month, amount: 0, workType: fallbackType };
+    state.entries.push(entry);
+  }
+  entry.month = month;
+  entry.workType = entry.workType || fallbackType;
+  return entry;
+}
+
+function buildDiggerDetailCard(person) {
+  const serviceHours = safeNumber(person.serviceHours, 0);
+  const threshold = safeNumber(person.oilThreshold, 230);
+  const warning = safeNumber(person.oilWarningThreshold, 210);
+  const remaining = Math.max(0, threshold - serviceHours);
+  const due = serviceHours >= warning;
+  const lastOil = person.oilChanges?.length ? person.oilChanges[person.oilChanges.length - 1] : null;
+  const oilLog = (person.oilChanges || []).slice().reverse().slice(0, 5).map(change => `
+    <li>
+      <span>${change.date}</span>
+      <strong>${safeNumber(change.counter || change.hours, 0)} ساعة</strong>
+    </li>
+  `).join('') || '<li>لا توجد تغييرات مسجلة</li>';
+  const { rows, total } = getDiggerMonthRows(person, currentMonthKey());
+
+  return `
+    <article class="person-card digger-card">
+      <div class="card-header">
+        <div>
+          <input class="edit-name" type="text" data-id="${person.id}" value="${person.name}">
+          <small>حفارة</small>
+        </div>
+        <button class="remove-person" type="button" data-remove-person="diggers" data-person="${person.id}" title="حذف الحفارة">×</button>
+      </div>
+      <div class="digger-fields">
+        <label>عدد الساعات<input type="number" min="0" step="0.5" value="${serviceHours}" readonly><small>ساعة هذا التدوير</small></label>
+        <label>سعر الساعة<input type="number" min="0" data-field="rate" data-id="${person.id}" value="${person.rate}"><small>دج</small></label>
+        <label>المجموع<input type="text" value="${money(serviceHours * safeNumber(person.rate, 0))}" readonly><small>تسديد هذا الدور</small></label>
+      </div>
+      <div class="service-box ${due ? 'service-due' : ''}">
+        <div>
+          <strong>${due ? 'تنبيه زيت قريب' : 'عداد الزيت'}</strong>
+          <small>${serviceHours} / ${threshold} ساعة • ${due ? `تبقى ${remaining} ساعة` : `متبقي ${remaining} ساعة`}</small>
+        </div>
+        <button type="button" data-oil-change="${person.id}">${due ? 'تغيير الزيت الآن' : 'تغيير الزيت'}</button>
+      </div>
+      <div class="digger-month-table">
+        <div class="digger-month-head">
+          <span>اليوم</span>
+          <span>نوع العمل</span>
+          <span>الساعات</span>
+          <span>سعر الساعة</span>
+          <span>المجموع</span>
+        </div>
+        ${rows.map(row => {
+          const entry = state.entries.find(item => item.type === 'diggers' && item.personId === person.id && item.date === row.date);
+          const workType = (entry?.workType || row.workType || 'حفر').trim() || 'حفر';
+          const hours = safeNumber(entry?.amount ?? row.hours, 0);
+          const currentRate = safeNumber(person.rate, 0);
+          const computedTotal = hours * currentRate;
+          return `
+            <div class="digger-month-row">
+              <span>${row.date.slice(-2)}</span>
+              <input class="digger-day-type" data-digger-id="${person.id}" data-date="${row.date}" value="${escapeAttribute(workType)}" aria-label="نوع العمل ${row.date}">
+              <input class="digger-day-hours" type="number" min="0" step="0.5" data-digger-id="${person.id}" data-date="${row.date}" value="${hours}" aria-label="ساعات ${row.date}">
+              <input class="digger-day-rate" type="number" min="0" step="1" data-digger-id="${person.id}" data-date="${row.date}" value="${currentRate}" aria-label="سعر الساعة ${row.date}">
+              <strong class="digger-day-total">${money(computedTotal)}</strong>
+            </div>
+          `;
+        }).join('')}
+        <div class="digger-month-total">
+          <span>المجموع النهائي</span>
+          <strong>${money(total)}</strong>
+        </div>
+      </div>
+      <div class="oil-history">
+        <h4>سجل تغييرات الزيت</h4>
+        <ul>${oilLog}</ul>
+        ${lastOil ? `<p>آخر تغيير: ${lastOil.date} • ${safeNumber(lastOil.counter || lastOil.hours, 0)} ساعة</p>` : '<p>لم يتم تغيير الزيت بعد.</p>'}
+      </div>
+    </article>
+  `;
 }
 
 function renderPeople(type) {
   const grid = qs(`#${type}Grid`);
   grid.innerHTML = '';
+
+  if (type === 'diggers') {
+    if (!state.diggers.length) {
+      grid.innerHTML = '<article class="person-card"><div class="empty-state"><span>✦</span><strong>لا توجد حفارات مسجلة</strong><p>أضف حفارة أولاً لعرض جدولها الخاص.</p></div></article>';
+      return;
+    }
+
+    if (!selectedDiggerId || !state.diggers.some(item => item.id === selectedDiggerId)) {
+      selectedDiggerId = state.diggers[0].id;
+    }
+
+    const selected = state.diggers.find(item => item.id === selectedDiggerId) || state.diggers[0];
+    const list = state.diggers.map(person => `
+      <button class="digger-selector ${person.id === selected.id ? 'active' : ''}" type="button" data-digger-select="${person.id}">
+        ${person.name}
+      </button>
+    `).join('');
+
+    grid.innerHTML = `
+      <div class="digger-directory">
+        <div class="digger-directory-list">${list}</div>
+        ${buildDiggerDetailCard(selected)}
+      </div>
+    `;
+    return;
+  }
 
   state[type].forEach(person => {
     if (type === 'workers') {
@@ -459,6 +649,7 @@ function renderPeople(type) {
       </li>
     `).join('') || '<li>لا توجد تغييرات مسجلة</li>';
 
+    const { rows, total } = getDiggerMonthRows(person, currentMonthKey());
     const html = `
       <article class="person-card digger-card">
         <div class="card-header">
@@ -479,6 +670,35 @@ function renderPeople(type) {
             <small>${serviceHours} / ${threshold} ساعة • ${due ? `تبقى ${remaining} ساعة` : `متبقي ${remaining} ساعة`}</small>
           </div>
           <button type="button" data-oil-change="${person.id}">${due ? 'تغيير الزيت الآن' : 'تغيير الزيت'}</button>
+        </div>
+        <div class="digger-month-table">
+          <div class="digger-month-head">
+            <span>اليوم</span>
+            <span>نوع العمل</span>
+            <span>الساعات</span>
+            <span>سعر الساعة</span>
+            <span>المجموع</span>
+          </div>
+          ${rows.map(row => {
+            const entry = state.entries.find(item => item.type === 'diggers' && item.personId === person.id && item.date === row.date);
+            const workType = (entry?.workType || row.workType || 'حفر').trim() || 'حفر';
+            const hours = safeNumber(entry?.amount ?? row.hours, 0);
+            const currentRate = safeNumber(person.rate, 0);
+            const computedTotal = hours * currentRate;
+            return `
+              <div class="digger-month-row">
+                <span>${row.date.slice(-2)}</span>
+                <input class="digger-day-type" data-digger-id="${person.id}" data-date="${row.date}" value="${escapeAttribute(workType)}" aria-label="نوع العمل ${row.date}">
+                <input class="digger-day-hours" type="number" min="0" step="0.5" data-digger-id="${person.id}" data-date="${row.date}" value="${hours}" aria-label="ساعات ${row.date}">
+                <input class="digger-day-rate" type="number" min="0" step="1" data-digger-id="${person.id}" data-date="${row.date}" value="${currentRate}" aria-label="سعر الساعة ${row.date}">
+                <strong class="digger-day-total">${money(computedTotal)}</strong>
+              </div>
+            `;
+          }).join('')}
+          <div class="digger-month-total">
+            <span>المجموع النهائي</span>
+            <strong>${money(total)}</strong>
+          </div>
         </div>
         <div class="oil-history">
           <h4>سجل تغييرات الزيت</h4>
@@ -759,8 +979,44 @@ function renderSummary() {
   }).join('') : `<div class="empty-state"><span>✦</span><strong>لا توجد حركات بعد</strong><p>ابد بضافة حضور و ساعات و شحنات لهذا الشهر.</p></div>`;
 }
 
+function exportDiggerMonthReport() {
+  const month = currentMonthKey();
+  const monthDates = getMonthDateRange(month);
+  const rows = [['كشف حفارات شهر ' + currentMonthLabel()], [''], ['الحفارة', 'اليوم', 'نوع العمل', 'عدد الساعات', 'سعر الساعة', 'المجموع']];
+
+  if (!state.diggers.length) {
+    rows.push(['لا توجد حفارات مسجلة في هذا الشهر']);
+  } else {
+    state.diggers.forEach(person => {
+      monthDates.forEach(date => {
+        const entry = state.entries.find(item => item.type === 'diggers' && item.personId === person.id && item.date === date);
+        const hours = safeNumber(entry?.amount, 0);
+        const rate = safeNumber(person.rate, 0);
+        rows.push([
+          person.name,
+          date.slice(-2),
+          (entry?.workType || 'حفر').trim() || 'حفر',
+          hours,
+          rate,
+          hours * rate
+        ]);
+      });
+    });
+  }
+
+  const csv = '\ufeff' + rows.map(row => row.map(csvCell).join(';')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `كشف-الحفارات-${month}.csv`;
+  link.click();
+  URL.revokeObjectURL(link.href);
+  showToast('تم تصدير كشف الحفارات');
+}
+
 function render() {
   renderMonths();
+  renderMachineSubnav();
   ['workers', 'diggers', 'trucks'].forEach(renderPeople);
   renderWorkerExpenses();
   renderCompanyExpenses();
@@ -812,13 +1068,14 @@ function addCompanyExpense() {
 function addPerson(type) {
   const person = {
     id: crypto.randomUUID(),
-    name: type === 'trucks' ? `الشاحنة ${arabicDigits(state.trucks.length + 1)}` : `السائق ${arabicDigits(state.workers.length + 1)}`,
+    name: type === 'trucks' ? `الشاحنة ${arabicDigits(state.trucks.length + 1)}` : type === 'diggers' ? `حفارة ${arabicDigits(state.diggers.length + 1)}` : `السائق ${arabicDigits(state.workers.length + 1)}`,
     rate: type === 'trucks' ? 0 : 1800,
     ...(type === 'workers' ? { monthlySalary: 0, workDays: 0, overtimeHours: 0, overtimeRate: 0, advance: 0 } : {}),
     ...(type === 'diggers' ? { serviceHours: 0, oilThreshold: 230, oilWarningThreshold: 210, oilChanges: [] } : {})
   };
 
   state[type].push(person);
+  if (type === 'diggers') selectedDiggerId = person.id;
   render();
   showToast(type === 'trucks' ? 'تمت إضافة شاحنة جديدة' : type === 'diggers' ? 'تمت إضافة حفارة جديدة' : 'تمت إضافة سائق جديد');
 }
@@ -902,6 +1159,10 @@ function openEntry(type = 'workers', personId = '') {
   if (type === 'workers') {
     qs('#entryAttendance').value = '1';
   }
+  if (type === 'diggers') {
+    qs('#entryWorkType').value = 'حفر';
+    qs('#entryAmount').value = '1';
+  }
   updateEntryLabels();
 }
 
@@ -911,10 +1172,13 @@ function updateEntryLabels() {
   const amountLabel = qs('#amountLabel');
   const amountInput = amountLabel.querySelector('input');
   const workerCalendarSection = qs('#workerCalendarSection');
+  const diggerWorkTypeField = qs('#diggerWorkTypeField');
   const isWorker = type === 'workers';
+  const isDigger = type === 'diggers';
   workerFields.style.display = isWorker ? 'grid' : 'none';
   workerCalendarSection.style.display = isWorker ? 'block' : 'none';
-  amountLabel.style.display = isWorker ? 'none' : 'block';
+  amountLabel.style.display = isWorker || isDigger ? 'none' : 'block';
+  diggerWorkTypeField.style.display = isDigger ? 'grid' : 'none';
   qs('#amountLabel').firstChild.textContent = type === 'workers' ? 'عدد اليام' : type === 'diggers' ? 'عدد الساعات' : 'عدد الحمولات';
   amountInput.min = type === 'trucks' ? '1' : '0';
   amountInput.step = type === 'trucks' ? '1' : '0.5';
@@ -933,6 +1197,21 @@ function notifyDueDiggers() {
 }
 
 document.addEventListener('click', event => {
+  const diggerNav = event.target.closest('[data-digger-nav]');
+  if (diggerNav) {
+    selectedDiggerId = diggerNav.dataset.diggerNav;
+    activateView('diggers');
+    render();
+    return;
+  }
+
+  const diggerSelect = event.target.closest('[data-digger-select]');
+  if (diggerSelect) {
+    selectedDiggerId = diggerSelect.dataset.diggerSelect;
+    render();
+    return;
+  }
+
   const view = event.target.closest('[data-view]');
   if (view) {
     activateView(view.dataset.view);
@@ -1007,6 +1286,39 @@ document.addEventListener('change', event => {
   }
 });
 
+document.addEventListener('input', event => {
+  if (!event.target.matches('.digger-day-hours, .digger-day-type, .digger-day-rate')) return;
+
+  const personId = event.target.dataset.diggerId;
+  const date = event.target.dataset.date;
+  if (!personId || !date) return;
+
+  const person = state.diggers.find(item => item.id === personId);
+  if (!person) return;
+
+  const entry = getOrCreateDiggerEntry(personId, date, 'حفر');
+  if (event.target.matches('.digger-day-type')) {
+    entry.workType = String(event.target.value || '').trim() || 'حفر';
+    return;
+  }
+
+  if (event.target.matches('.digger-day-hours')) {
+    entry.amount = safeNumber(event.target.value, 0);
+  }
+
+  if (event.target.matches('.digger-day-rate')) {
+    person.rate = safeNumber(event.target.value, safeNumber(person.rate, 0));
+  }
+
+  const row = event.target.closest('.digger-month-row');
+  const hours = safeNumber(row?.querySelector('.digger-day-hours')?.value, 0);
+  const rate = safeNumber(row?.querySelector('.digger-day-rate')?.value, safeNumber(person.rate, 0));
+  const totalEl = row?.querySelector('.digger-day-total');
+  if (totalEl) totalEl.textContent = money(hours * rate);
+
+  save();
+});
+
 qs('#workerExpenseForm').addEventListener('submit', event => {
   event.preventDefault();
   const workerId = qs('#expenseWorker').value;
@@ -1071,6 +1383,7 @@ qs('#entryForm').addEventListener('submit', event => {
   const personId = qs('#entryPerson').value;
   const date = qs('#entryDate').value;
   const person = state[type].find(item => item.id === personId);
+  const workType = type === 'diggers' ? String(qs('#entryWorkType').value || '').trim() || 'عام' : 'عام';
 
   if (type === 'workers') {
     const selectedDate = qs('#entryDate').value;
@@ -1111,6 +1424,15 @@ qs('#entryForm').addEventListener('submit', event => {
   const attendance = type === 'workers' ? Math.max(0, Number(qs('#entryAttendance').value) || 0) : 1;
   const overtimeHours = type === 'workers' ? Number(qs('#entryOvertime').value) || 0 : 0;
   const amount = type === 'workers' ? attendance : Number(qs('#entryAmount').value) || 0;
+
+  if (type === 'diggers') {
+    state.entries.push({ id: crypto.randomUUID(), type, personId, date, month: date.slice(0, 7), amount, workType });
+    qs('#entryModal').classList.remove('open');
+    render();
+    notifyDueDiggers();
+    showToast(`تم حفظ سجل ${person?.name || 'الحفارة'} • ${workType} • ${amount} ساعة`);
+    return;
+  }
 
   const existing = state.entries.find(entry => entry.type === 'workers' && entry.personId === personId && entry.date === date);
   if (type === 'workers' && existing) {
@@ -1271,6 +1593,7 @@ qs('#themeToggle').addEventListener('click', () => {
 
 qs('#mobileMenu').addEventListener('click', () => qs('#sidebar').classList.toggle('open'));
 qs('#quickAdd').addEventListener('click', () => openEntry());
+qs('#exportDiggerMonth')?.addEventListener('click', exportDiggerMonthReport);
 qs('#openExport').addEventListener('click', () => {
   renderExportOptions();
   qs('#exportModal').classList.add('open');
