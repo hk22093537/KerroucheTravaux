@@ -8,8 +8,14 @@ const safeNumber = (value, fallback = 0) => {
 };
 
 let selectedMonth = new Date();
+let selectedWorkerId = null;
 let selectedDiggerId = null;
 let selectedMachineSubView = 'all';
+let workersSubnavOpen = false;
+let expensesSubnavOpen = false;
+let machinesSubnavOpen = false;
+let diggersSubnavOpen = false;
+let trucksSubnavOpen = false;
 const defaults = { workers: [['السائق ١',1800],['السائق ٢',1800],['السائق ٣',1800],['السائق ٤',1800],['السائق ٥',1800],['السائق ٦',1800]], diggers: [['G(Hyundai) 01 حفارة',350],['M(Hyundai) 02 حفارة',350],['G(TIRSAM) 03 حفارة',350],['G(TIRSAM) 04 حفارة',350]], trucks: [['الشاحنة ٠١',0],['الشاحنة ٠٢',0]], companyExpenses: [] };
 
 function loadInitialState() {
@@ -361,17 +367,35 @@ function downloadExport() {
 
 function activateView(viewName = 'workers') {
   const expenseSubnav = qs('#expenseSubnav');
+  const workerSubnav = qs('#workerSubnav');
   const machineSubnav = qs('#machineSubnav');
   const isExpensesView = viewName === 'expenses';
   const isExpenseSubView = viewName === 'workerExpenses' || viewName === 'companyExpenses';
+  const isWorkersView = viewName === 'workers';
   const isMachinesView = viewName === 'machines';
   const isMachineSubView = viewName === 'diggers' || viewName === 'trucks';
 
   if (viewName === 'machines') {
     selectedMachineSubView = 'all';
   }
-  if (viewName === 'diggers') selectedMachineSubView = 'diggers';
-  if (viewName === 'trucks') selectedMachineSubView = 'trucks';
+  if (viewName === 'diggers') {
+    selectedMachineSubView = 'diggers';
+    machinesSubnavOpen = true;
+    diggersSubnavOpen = true;
+  }
+  if (viewName === 'trucks') {
+    selectedMachineSubView = 'trucks';
+    machinesSubnavOpen = true;
+    trucksSubnavOpen = true;
+  }
+  if (viewName === 'expenses' || viewName === 'workerExpenses' || viewName === 'companyExpenses') {
+    expensesSubnavOpen = true;
+  }
+  if (viewName !== 'machines' && viewName !== 'diggers' && viewName !== 'trucks') {
+    machinesSubnavOpen = false;
+  }
+  if (viewName !== 'diggers') diggersSubnavOpen = false;
+  if (viewName !== 'trucks') trucksSubnavOpen = false;
 
   document.querySelectorAll('.nav-item, .nav-subitem').forEach(item => {
     const active = item.dataset.view === viewName;
@@ -379,11 +403,28 @@ function activateView(viewName = 'workers') {
   });
 
   if (expenseSubnav) {
-    expenseSubnav.classList.toggle('open', isExpensesView || isExpenseSubView);
+    const shouldOpen = (isExpensesView || isExpenseSubView) && expensesSubnavOpen;
+    expenseSubnav.classList.toggle('open', shouldOpen);
+  }
+
+  if (workerSubnav) {
+    workerSubnav.classList.toggle('open', isWorkersView && workersSubnavOpen);
   }
 
   if (machineSubnav) {
-    machineSubnav.classList.toggle('open', isMachinesView || isMachineSubView);
+    const isMachinesMenuOpen = machinesSubnavOpen && (isMachinesView || isMachineSubView);
+    machineSubnav.classList.toggle('open', isMachinesMenuOpen);
+    machineSubnav.querySelectorAll('.menu-group').forEach(group => {
+      const button = group.querySelector('.nav-subitem');
+      if (!button) return;
+      const isDiggerGroup = button.dataset.view === 'diggers';
+      const isTruckGroup = button.dataset.view === 'trucks';
+      const child = group.querySelector('.menu-children');
+      if (!child) return;
+      const shouldShow = (isDiggerGroup && diggersSubnavOpen && selectedMachineSubView === 'diggers') || (isTruckGroup && trucksSubnavOpen && selectedMachineSubView === 'trucks');
+      child.classList.toggle('show', shouldShow);
+      group.classList.toggle('open', shouldShow);
+    });
   }
 
   if (viewName === 'expenses' || viewName === 'machines') {
@@ -411,6 +452,19 @@ function renderMonths() {
   if (trucksCount) trucksCount.textContent = arabicDigits(state.trucks.length);
 }
 
+function renderWorkerSubnav() {
+  const workerSubnav = qs('#workerSubnav');
+  if (!workerSubnav) return;
+
+  workerSubnav.innerHTML = state.workers.length
+    ? state.workers.map(person => `
+        <button class="nav-subitem worker-subitem ${selectedWorkerId === person.id ? 'active' : ''}" type="button" data-worker-nav="${person.id}">
+          <span>👷</span> ${person.name}
+        </button>
+      `).join('')
+    : '<button class="nav-subitem empty-subitem" type="button" disabled>لا يوجد سائقون</button>';
+}
+
 function renderMachineSubnav() {
   const machineSubnav = qs('#machineSubnav');
   if (!machineSubnav) return;
@@ -420,7 +474,7 @@ function renderMachineSubnav() {
       <button class="nav-subitem ${selectedMachineSubView === 'diggers' ? 'active' : ''}" data-view="diggers" type="button">
         <span>🚜</span> الحفارات
       </button>
-      <div class="menu-children ${selectedMachineSubView === 'diggers' ? 'show' : ''}">
+      <div class="menu-children ${selectedMachineSubView === 'diggers' && diggersSubnavOpen ? 'show' : ''}">
         ${state.diggers.length
           ? state.diggers.map(person => `
               <button class="nav-subitem digger-subitem ${selectedDiggerId === person.id ? 'active' : ''}" type="button" data-digger-nav="${person.id}">
@@ -437,12 +491,7 @@ function renderMachineSubnav() {
       <button class="nav-subitem ${selectedMachineSubView === 'trucks' ? 'active' : ''}" data-view="trucks" type="button">
         <span>🚚</span> الشاحنات
       </button>
-      <div class="menu-children ${selectedMachineSubView === 'trucks' ? 'show' : ''}">
-        ${state.trucks.length
-          ? state.trucks.map(person => `
-              <button class="nav-subitem truck-subitem" type="button" data-view="trucks">
-                <span>🚚</span> ${person.name}
-              </button>
+      <div class="menu-children ${selectedMachineSubView === 'trucks' && trucksSubnavOpen ? 'show' : ''}">
             `).join('')
           : '<button class="nav-subitem empty-subitem" type="button" disabled>لا توجد شاحنات</button>'}
       </div>
@@ -601,6 +650,54 @@ function renderPeople(type) {
   const grid = qs(`#${type}Grid`);
   grid.innerHTML = '';
 
+  if (type === 'workers') {
+    if (!state.workers.length) {
+      grid.innerHTML = '<article class="person-card"><div class="empty-state"><span>✦</span><strong>لا يوجد سائقون مسجلون</strong><p>أضف سائقًا أولاً لعرض بياناته.</p></div></article>';
+      return;
+    }
+
+    if (!selectedWorkerId || !state.workers.some(item => item.id === selectedWorkerId)) {
+      selectedWorkerId = state.workers[0].id;
+    }
+
+    const person = state.workers.find(item => item.id === selectedWorkerId) || state.workers[0];
+    const entries = entriesFor(type, person.id);
+    const amount = entries.reduce((sum, entry) => sum + safeNumber(entry.amount, 0), 0);
+    const attendanceTotal = workerEntryAttendance(person.id);
+    const overtimeTotal = workerEntryOvertime(person.id);
+    const workDays = safeNumber(person.workDays) || attendanceTotal;
+    const overtimeHours = safeNumber(person.overtimeHours) || overtimeTotal;
+    const expenseTotal = workerMonthlyPersonalExpenseTotal(person.id);
+    const totalAdvance = getWorkerEffectiveAdvance(person.id);
+    const total = (workDays * safeNumber(person.rate)) + (overtimeHours * safeNumber(person.overtimeRate)) - totalAdvance;
+
+    const html = `
+      <article class="person-card">
+        <div class="card-header">
+          <div>
+            <input class="edit-name" type="text" data-id="${person.id}" value="${person.name}">
+            <small>سائق</small>
+          </div>
+          <button class="remove-person" type="button" data-remove-person="workers" data-person="${person.id}" title="حذف السائق">×</button>
+        </div>
+        <div class="worker-fields">
+          <label>الراتب الشهري<input type="number" min="0" data-field="monthlySalary" data-id="${person.id}" value="${person.monthlySalary}"><small>دج</small></label>
+          <label>عدد يام العمل<input type="number" min="0" step="0.5" data-field="workDays" data-id="${person.id}" value="${workDays}" data-worker-days-list="${person.id}" title="اضغط لعرض يام الحضور"><small>يوم</small></label>
+          <label>اليومية<input type="number" min="0" data-field="rate" data-id="${person.id}" value="${person.rate}"><small>دج</small></label>
+          <label>الساعات الضافية<input type="number" min="0" step="0.5" data-field="overtimeHours" data-id="${person.id}" value="${overtimeHours}" data-worker-overtime-list="${person.id}" title="اضغط لعرض ساعات ضافية يومية"><small>ساعة</small></label>
+          <label>ثمن الساعة<input type="number" min="0" data-field="overtimeRate" data-id="${person.id}" value="${person.overtimeRate}"><small>دج</small></label>
+          <label>التسبيقة<input type="number" min="0" data-field="advance" data-id="${person.id}" value="${totalAdvance}" readonly><small>دج</small></label>
+        </div>
+        <div class="total-row">
+          <span>الجمالي</span>
+          <strong>${money(total)}</strong>
+        </div>
+      </article>
+    `;
+    grid.innerHTML = html;
+    return;
+  }
+
   if (type === 'diggers') {
     if (!state.diggers.length) {
       grid.innerHTML = '<article class="person-card"><div class="empty-state"><span>✦</span><strong>لا توجد حفارات مسجلة</strong><p>أضف حفارة أولاً لعرض جدولها الخاص.</p></div></article>';
@@ -617,43 +714,6 @@ function renderPeople(type) {
   }
 
   state[type].forEach(person => {
-    if (type === 'workers') {
-      const entries = entriesFor(type, person.id);
-      const amount = entries.reduce((sum, entry) => sum + safeNumber(entry.amount, 0), 0);
-      const attendanceTotal = workerEntryAttendance(person.id);
-      const overtimeTotal = workerEntryOvertime(person.id);
-      const workDays = safeNumber(person.workDays) || attendanceTotal;
-      const overtimeHours = safeNumber(person.overtimeHours) || overtimeTotal;
-      const expenseTotal = workerMonthlyPersonalExpenseTotal(person.id);
-      const totalAdvance = getWorkerEffectiveAdvance(person.id);
-      const total = (workDays * safeNumber(person.rate)) + (overtimeHours * safeNumber(person.overtimeRate)) - totalAdvance;
-
-      const html = `
-        <article class="person-card">
-          <div class="card-header">
-            <div>
-              <input class="edit-name" type="text" data-id="${person.id}" value="${person.name}">
-              <small>سائق</small>
-            </div>
-            <button class="remove-person" type="button" data-remove-person="workers" data-person="${person.id}" title="حذف السائق">×</button>
-          </div>
-          <div class="worker-fields">
-            <label>الراتب الشهري<input type="number" min="0" data-field="monthlySalary" data-id="${person.id}" value="${person.monthlySalary}"><small>دج</small></label>
-            <label>عدد يام العمل<input type="number" min="0" step="0.5" data-field="workDays" data-id="${person.id}" value="${workDays}" data-worker-days-list="${person.id}" title="اضغط لعرض يام الحضور"><small>يوم</small></label>
-            <label>اليومية<input type="number" min="0" data-field="rate" data-id="${person.id}" value="${person.rate}"><small>دج</small></label>
-            <label>الساعات الضافية<input type="number" min="0" step="0.5" data-field="overtimeHours" data-id="${person.id}" value="${overtimeHours}" data-worker-overtime-list="${person.id}" title="اضغط لعرض ساعات ضافية يومية"><small>ساعة</small></label>
-            <label>ثمن الساعة<input type="number" min="0" data-field="overtimeRate" data-id="${person.id}" value="${person.overtimeRate}"><small>دج</small></label>
-            <label>التسبيقة<input type="number" min="0" data-field="advance" data-id="${person.id}" value="${totalAdvance}" readonly><small>دج</small></label>
-          </div>
-          <div class="total-row">
-            <span>الجمالي</span>
-            <strong>${money(total)}</strong>
-          </div>
-        </article>
-      `;
-      grid.insertAdjacentHTML('beforeend', html);
-      return;
-    }
 
     if (type === 'trucks') {
       const total = entriesFor(type, person.id).reduce((sum, entry) => sum + safeNumber(entry.amount, 0), 0) * safeNumber(person.rate, 0);
@@ -1072,6 +1132,7 @@ function exportDiggerMonthReport() {
 
 function render() {
   renderMonths();
+  renderWorkerSubnav();
   renderMachineSubnav();
   ['workers', 'diggers', 'trucks'].forEach(renderPeople);
   renderWorkerExpenses();
@@ -1253,6 +1314,15 @@ function notifyDueDiggers() {
 }
 
 document.addEventListener('click', event => {
+  const workerNav = event.target.closest('[data-worker-nav]');
+  if (workerNav) {
+    selectedWorkerId = workerNav.dataset.workerNav;
+    workersSubnavOpen = true;
+    activateView('workers');
+    render();
+    return;
+  }
+
   const diggerNav = event.target.closest('[data-digger-nav]');
   if (diggerNav) {
     selectedDiggerId = diggerNav.dataset.diggerNav;
@@ -1270,6 +1340,71 @@ document.addEventListener('click', event => {
 
   const view = event.target.closest('[data-view]');
   if (view) {
+    if (view.dataset.view === 'workers') {
+      workersSubnavOpen = !workersSubnavOpen;
+      if (!workersSubnavOpen && selectedWorkerId) {
+        activateView('workers');
+        render();
+        return;
+      }
+    }
+
+    if (view.dataset.view === 'expenses') {
+      expensesSubnavOpen = !expensesSubnavOpen;
+      if (!expensesSubnavOpen) {
+        activateView('expenses');
+        render();
+        return;
+      }
+    }
+
+    if (view.dataset.view === 'machines') {
+      machinesSubnavOpen = !machinesSubnavOpen;
+      if (!machinesSubnavOpen) {
+        activateView('machines');
+        render();
+        return;
+      }
+    }
+
+    if (view.dataset.view === 'diggers') {
+      if (selectedMachineSubView === 'diggers' && diggersSubnavOpen) {
+        diggersSubnavOpen = false;
+        machinesSubnavOpen = true;
+        activateView('machines');
+        render();
+        return;
+      }
+      diggersSubnavOpen = true;
+      trucksSubnavOpen = false;
+      selectedMachineSubView = 'diggers';
+      machinesSubnavOpen = true;
+      activateView('diggers');
+      render();
+      return;
+    }
+
+    if (view.dataset.view === 'trucks') {
+      if (selectedMachineSubView === 'trucks' && trucksSubnavOpen) {
+        trucksSubnavOpen = false;
+        machinesSubnavOpen = true;
+        activateView('machines');
+        render();
+        return;
+      }
+      trucksSubnavOpen = true;
+      diggersSubnavOpen = false;
+      selectedMachineSubView = 'trucks';
+      machinesSubnavOpen = true;
+      activateView('trucks');
+      render();
+      return;
+    }
+
+    if (view.dataset.view === 'workerExpenses' || view.dataset.view === 'companyExpenses') {
+      expensesSubnavOpen = true;
+    }
+
     activateView(view.dataset.view);
   }
 
@@ -1767,6 +1902,11 @@ if (config) {
 
 (async () => {
   await loadFromSupabase();
+  workersSubnavOpen = false;
+  expensesSubnavOpen = false;
+  machinesSubnavOpen = false;
+  diggersSubnavOpen = false;
+  trucksSubnavOpen = false;
   activateView('workers');
   render();
   notifyDueDiggers();
