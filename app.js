@@ -10,7 +10,7 @@ const safeNumber = (value, fallback = 0) => {
 let selectedMonth = new Date();
 let selectedDiggerId = null;
 let selectedMachineSubView = 'all';
-const defaults = { workers: [['السائق ١',1800],['السائق ٢',1800],['السائق ٣',1800],['السائق ٤',1800],['السائق ٥',1800],['السائق ٦',1800]], diggers: [['حفار ١',350],['حفار ٢',350],['حفار ٣',350],['حفار ٤',350]], trucks: [['الشاحنة ٠١',0],['الشاحنة ٠٢',0]], companyExpenses: [] };
+const defaults = { workers: [['السائق ١',1800],['السائق ٢',1800],['السائق ٣',1800],['السائق ٤',1800],['السائق ٥',1800],['السائق ٦',1800]], diggers: [['G(Hyundai) 01 حفارة',350],['M(Hyundai) 02 حفارة',350],['G(TIRSAM) 03 حفارة',350],['G(TIRSAM) 04 حفارة',350]], trucks: [['الشاحنة ٠١',0],['الشاحنة ٠٢',0]], companyExpenses: [] };
 
 function loadInitialState() {
   try {
@@ -62,12 +62,15 @@ function normalizeDiggers() {
       hours: safeNumber(entry.hours, 0),
       counter: safeNumber(entry.counter, safeNumber(entry.hours, 0))
     })) : [];
+    const currentMeter = safeNumber(digger.currentMeter, safeNumber(digger.serviceHours, 0));
 
     return {
       id: digger.id || crypto.randomUUID(),
       name: digger.name || `حفار ${arabicDigits(index + 1)}`,
       rate: safeNumber(digger.rate, 0),
-      serviceHours: safeNumber(digger.serviceHours, 0),
+      serviceHours: currentMeter,
+      currentMeter,
+      workHours: safeNumber(digger.workHours, 0),
       oilThreshold,
       oilWarningThreshold,
       oilChanges,
@@ -336,12 +339,12 @@ function downloadExport() {
       const overtimeHours = workerEntryOvertime(person.id, key);
       const dailyRate = Number(person.rate) || 0;
       const overtimeRate = Number(person.overtimeRate) || 0;
-      const advance = Number(person.advance) || 0;
+      const advance = getWorkerEffectiveAdvance(person.id, key);
       const expenseTotal = workerMonthlyPersonalExpenseTotal(person.id, key);
       const dailyTotal = days * dailyRate;
       const overtimeTotal = overtimeHours * overtimeRate;
-      const net = dailyTotal + overtimeTotal - advance - expenseTotal;
-      rows.push([person.name, days, dailyRate, overtimeHours, overtimeRate, advance + expenseTotal, net]);
+      const net = dailyTotal + overtimeTotal - advance;
+      rows.push([person.name, days, dailyRate, overtimeHours, overtimeRate, advance, net]);
     });
   });
   if (rows.length === 3) rows.push(['لا توجد بيانات للسائقين في هذا الشهر']);
@@ -364,7 +367,9 @@ function activateView(viewName = 'workers') {
   const isMachinesView = viewName === 'machines';
   const isMachineSubView = viewName === 'diggers' || viewName === 'trucks';
 
-  if (viewName === 'machines') selectedMachineSubView = 'all';
+  if (viewName === 'machines') {
+    selectedMachineSubView = 'all';
+  }
   if (viewName === 'diggers') selectedMachineSubView = 'diggers';
   if (viewName === 'trucks') selectedMachineSubView = 'trucks';
 
@@ -385,6 +390,7 @@ function activateView(viewName = 'workers') {
     document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
     qs('#pageLabel').textContent = viewName === 'expenses' ? 'المصاريف' : 'الآلات';
     qs('#sidebar').classList.remove('open');
+    render();
     return;
   }
 
@@ -392,6 +398,7 @@ function activateView(viewName = 'workers') {
   document.querySelectorAll('.view').forEach(view => view.classList.toggle('active', view.id === `${viewKey}View`));
   qs('#pageLabel').textContent = viewKey === 'dashboard' ? 'لوحة المتابعة' : viewKey === 'workers' ? 'السائقون' : viewKey === 'workerExpenses' ? 'مصاريف السائقين' : viewKey === 'companyExpenses' ? 'مصاريف الشركة' : viewKey === 'diggers' ? 'الحفارات' : 'الشاحنات';
   qs('#sidebar').classList.remove('open');
+  render();
 }
 
 function renderMonths() {
@@ -409,31 +416,41 @@ function renderMachineSubnav() {
   if (!machineSubnav) return;
 
   const diggerCategory = `
-    <button class="nav-subitem ${selectedMachineSubView === 'diggers' ? 'active' : ''}" data-view="diggers" type="button">
-      <span>🚜</span> الحفارات
-    </button>
+    <div class="menu-group ${selectedMachineSubView === 'diggers' ? 'open' : ''}">
+      <button class="nav-subitem ${selectedMachineSubView === 'diggers' ? 'active' : ''}" data-view="diggers" type="button">
+        <span>🚜</span> الحفارات
+      </button>
+      <div class="menu-children ${selectedMachineSubView === 'diggers' ? 'show' : ''}">
+        ${state.diggers.length
+          ? state.diggers.map(person => `
+              <button class="nav-subitem digger-subitem ${selectedDiggerId === person.id ? 'active' : ''}" type="button" data-digger-nav="${person.id}">
+                <span>🚜</span> ${person.name}
+              </button>
+            `).join('')
+          : '<button class="nav-subitem empty-subitem" type="button" disabled>لا توجد حفارات</button>'}
+      </div>
+    </div>
   `;
 
   const truckCategory = `
-    <button class="nav-subitem ${selectedMachineSubView === 'trucks' ? 'active' : ''}" data-view="trucks" type="button">
-      <span>🚚</span> الشاحنات
-    </button>
+    <div class="menu-group ${selectedMachineSubView === 'trucks' ? 'open' : ''}">
+      <button class="nav-subitem ${selectedMachineSubView === 'trucks' ? 'active' : ''}" data-view="trucks" type="button">
+        <span>🚚</span> الشاحنات
+      </button>
+      <div class="menu-children ${selectedMachineSubView === 'trucks' ? 'show' : ''}">
+        ${state.trucks.length
+          ? state.trucks.map(person => `
+              <button class="nav-subitem truck-subitem" type="button" data-view="trucks">
+                <span>🚚</span> ${person.name}
+              </button>
+            `).join('')
+          : '<button class="nav-subitem empty-subitem" type="button" disabled>لا توجد شاحنات</button>'}
+      </div>
+    </div>
   `;
-
-  let diggerList = '';
-  if (selectedMachineSubView === 'diggers') {
-    diggerList = state.diggers.length
-      ? state.diggers.map(person => `
-          <button class="nav-subitem digger-subitem ${selectedDiggerId === person.id ? 'active' : ''}" type="button" data-digger-nav="${person.id}">
-            <span>🚜</span> ${person.name}
-          </button>
-        `).join('')
-      : '<button class="nav-subitem empty-subitem" type="button" disabled>لا توجد حفارات</button>';
-  }
 
   machineSubnav.innerHTML = `
     ${diggerCategory}
-    ${diggerList}
     ${truckCategory}
   `;
 }
@@ -459,6 +476,13 @@ function getDiggerMonthRows(person, month = currentMonthKey()) {
   return { rows, total };
 }
 
+function diggerRateForWorkType(workType) {
+  const type = String(workType || '').trim().toUpperCase();
+  if (type === 'G') return 4000;
+  if (type === 'M') return 6250;
+  return 0;
+}
+
 function getOrCreateDiggerEntry(personId, date, fallbackType = 'حفر') {
   const month = (date || '').slice(0, 7);
   let entry = state.entries.find(item => item.type === 'diggers' && item.personId === personId && item.date === date);
@@ -471,12 +495,32 @@ function getOrCreateDiggerEntry(personId, date, fallbackType = 'حفر') {
   return entry;
 }
 
+function getDiggerPreviousTotal(personId, monthKeyValue) {
+  return state.entries
+    .filter(entry => entry.type === 'diggers' && entry.personId === personId && entry.month < monthKeyValue)
+    .reduce((sum, entry) => sum + safeNumber(entry.amount, 0), 0);
+}
+
+function getDiggerMeterState(person, monthKeyValue = currentMonthKey()) {
+  const previousTotal = getDiggerPreviousTotal(person.id, monthKeyValue);
+  const currentMonthHours = state.entries
+    .filter(entry => entry.type === 'diggers' && entry.personId === person.id && entry.month === monthKeyValue)
+    .reduce((sum, entry) => sum + safeNumber(entry.amount, 0), 0);
+  const workHours = safeNumber(person.workHours, currentMonthHours);
+  const currentMeter = previousTotal;
+  const newMeter = currentMeter + workHours;
+  return { previousTotal, currentMonthHours, currentMeter, workHours, newMeter };
+}
+
 function buildDiggerDetailCard(person) {
-  const serviceHours = safeNumber(person.serviceHours, 0);
+  const { currentMeter, workHours, newMeter } = getDiggerMeterState(person);
+  person.currentMeter = currentMeter;
+  person.serviceHours = newMeter;
+  person.workHours = workHours;
   const threshold = safeNumber(person.oilThreshold, 230);
   const warning = safeNumber(person.oilWarningThreshold, 210);
-  const remaining = Math.max(0, threshold - serviceHours);
-  const due = serviceHours >= warning;
+  const remaining = threshold - newMeter;
+  const due = newMeter >= warning;
   const lastOil = person.oilChanges?.length ? person.oilChanges[person.oilChanges.length - 1] : null;
   const oilLog = (person.oilChanges || []).slice().reverse().slice(0, 5).map(change => `
     <li>
@@ -496,14 +540,19 @@ function buildDiggerDetailCard(person) {
         <button class="remove-person" type="button" data-remove-person="diggers" data-person="${person.id}" title="حذف الحفارة">×</button>
       </div>
       <div class="digger-fields">
-        <label>عدد الساعات<input type="number" min="0" step="0.5" value="${serviceHours}" readonly><small>ساعة هذا التدوير</small></label>
-        <label>سعر الساعة<input type="number" min="0" data-field="rate" data-id="${person.id}" value="${person.rate}"><small>دج</small></label>
-        <label>المجموع<input type="text" value="${money(serviceHours * safeNumber(person.rate, 0))}" readonly><small>تسديد هذا الدور</small></label>
+        <label>العداد الحالي<input type="text" value="${currentMeter}" readonly><small>يأخذ من الشهر السابق</small></label>
+        <label>عدد ساعات العمل<input type="text" inputmode="decimal" pattern="[0-9]+([.][0-9]+)?" data-field="workHours" data-id="${person.id}" value="${workHours}"><small>ساعة</small></label>
+        <label>العداد الجديد<input type="text" value="${newMeter}" readonly><small>الحالي + عدد الساعات</small></label>
+        <label>المتبقي<input type="text" value="${remaining}" readonly><small>الحد - العداد الجديد</small></label>
+        <label>تنبيه الزيت<input type="text" inputmode="numeric" pattern="[0-9]+([.][0-9]+)?" data-field="oilWarningThreshold" data-id="${person.id}" value="${warning}"><small>ساعة</small></label>
+        <label>حد الزيت<input type="text" inputmode="numeric" pattern="[0-9]+([.][0-9]+)?" data-field="oilThreshold" data-id="${person.id}" value="${threshold}"><small>ساعة</small></label>
+        <label>سعر الساعة<input type="text" inputmode="decimal" pattern="[0-9]+([.][0-9]+)?" data-field="rate" data-id="${person.id}" value="${person.rate}"><small>دج</small></label>
+        <label>المجموع<input type="text" value="${money(workHours * safeNumber(person.rate, 0))}" readonly><small>تسديد هذا الدور</small></label>
       </div>
       <div class="service-box ${due ? 'service-due' : ''}">
         <div>
           <strong>${due ? 'تنبيه زيت قريب' : 'عداد الزيت'}</strong>
-          <small>${serviceHours} / ${threshold} ساعة • ${due ? `تبقى ${remaining} ساعة` : `متبقي ${remaining} ساعة`}</small>
+          <small>${newMeter} / ${threshold} ساعة • ${remaining >= 0 ? `متبقي ${remaining} ساعة` : `فوق الحد بـ ${Math.abs(remaining)} ساعة`}</small>
         </div>
         <button type="button" data-oil-change="${person.id}">${due ? 'تغيير الزيت الآن' : 'تغيير الزيت'}</button>
       </div>
@@ -517,16 +566,19 @@ function buildDiggerDetailCard(person) {
         </div>
         ${rows.map(row => {
           const entry = state.entries.find(item => item.type === 'diggers' && item.personId === person.id && item.date === row.date);
-          const workType = (entry?.workType || row.workType || 'حفر').trim() || 'حفر';
+          const workType = String((entry?.workType || row.workType || 'G')).trim() || 'G';
           const hours = safeNumber(entry?.amount ?? row.hours, 0);
-          const currentRate = safeNumber(person.rate, 0);
+          const currentRate = safeNumber(person.rate, diggerRateForWorkType(workType));
           const computedTotal = hours * currentRate;
           return `
             <div class="digger-month-row">
               <span>${row.date.slice(-2)}</span>
-              <input class="digger-day-type" data-digger-id="${person.id}" data-date="${row.date}" value="${escapeAttribute(workType)}" aria-label="نوع العمل ${row.date}">
-              <input class="digger-day-hours" type="number" min="0" step="0.5" data-digger-id="${person.id}" data-date="${row.date}" value="${hours}" aria-label="ساعات ${row.date}">
-              <input class="digger-day-rate" type="number" min="0" step="1" data-digger-id="${person.id}" data-date="${row.date}" value="${currentRate}" aria-label="سعر الساعة ${row.date}">
+              <select class="digger-day-type" data-digger-id="${person.id}" data-date="${row.date}" aria-label="نوع العمل ${row.date}">
+                <option value="G" ${workType.toUpperCase() === 'G' ? 'selected' : ''}>G</option>
+                <option value="M" ${workType.toUpperCase() === 'M' ? 'selected' : ''}>M</option>
+              </select>
+              <input class="digger-day-hours" type="text" inputmode="decimal" pattern="[0-9]+([.][0-9]+)?" data-digger-id="${person.id}" data-date="${row.date}" value="${hours}" aria-label="ساعات ${row.date}">
+              <input class="digger-day-rate" type="text" inputmode="decimal" pattern="[0-9]+([.][0-9]+)?" data-digger-id="${person.id}" data-date="${row.date}" value="${currentRate}" aria-label="سعر الساعة ${row.date}">
               <strong class="digger-day-total">${money(computedTotal)}</strong>
             </div>
           `;
@@ -560,18 +612,7 @@ function renderPeople(type) {
     }
 
     const selected = state.diggers.find(item => item.id === selectedDiggerId) || state.diggers[0];
-    const list = state.diggers.map(person => `
-      <button class="digger-selector ${person.id === selected.id ? 'active' : ''}" type="button" data-digger-select="${person.id}">
-        ${person.name}
-      </button>
-    `).join('');
-
-    grid.innerHTML = `
-      <div class="digger-directory">
-        <div class="digger-directory-list">${list}</div>
-        ${buildDiggerDetailCard(selected)}
-      </div>
-    `;
+    grid.innerHTML = buildDiggerDetailCard(selected);
     return;
   }
 
@@ -584,7 +625,7 @@ function renderPeople(type) {
       const workDays = safeNumber(person.workDays) || attendanceTotal;
       const overtimeHours = safeNumber(person.overtimeHours) || overtimeTotal;
       const expenseTotal = workerMonthlyPersonalExpenseTotal(person.id);
-      const totalAdvance = safeNumber(person.advance) + expenseTotal;
+      const totalAdvance = getWorkerEffectiveAdvance(person.id);
       const total = (workDays * safeNumber(person.rate)) + (overtimeHours * safeNumber(person.overtimeRate)) - totalAdvance;
 
       const html = `
@@ -681,14 +722,17 @@ function renderPeople(type) {
           </div>
           ${rows.map(row => {
             const entry = state.entries.find(item => item.type === 'diggers' && item.personId === person.id && item.date === row.date);
-            const workType = (entry?.workType || row.workType || 'حفر').trim() || 'حفر';
+            const workType = String((entry?.workType || row.workType || 'G')).trim() || 'G';
             const hours = safeNumber(entry?.amount ?? row.hours, 0);
-            const currentRate = safeNumber(person.rate, 0);
+            const currentRate = safeNumber(person.rate, diggerRateForWorkType(workType));
             const computedTotal = hours * currentRate;
             return `
               <div class="digger-month-row">
                 <span>${row.date.slice(-2)}</span>
-                <input class="digger-day-type" data-digger-id="${person.id}" data-date="${row.date}" value="${escapeAttribute(workType)}" aria-label="نوع العمل ${row.date}">
+                <select class="digger-day-type" data-digger-id="${person.id}" data-date="${row.date}" aria-label="نوع العمل ${row.date}">
+                  <option value="G" ${workType.toUpperCase() === 'G' ? 'selected' : ''}>G</option>
+                  <option value="M" ${workType.toUpperCase() === 'M' ? 'selected' : ''}>M</option>
+                </select>
                 <input class="digger-day-hours" type="number" min="0" step="0.5" data-digger-id="${person.id}" data-date="${row.date}" value="${hours}" aria-label="ساعات ${row.date}">
                 <input class="digger-day-rate" type="number" min="0" step="1" data-digger-id="${person.id}" data-date="${row.date}" value="${currentRate}" aria-label="سعر الساعة ${row.date}">
                 <strong class="digger-day-total">${money(computedTotal)}</strong>
@@ -750,6 +794,17 @@ function getWorkerMonthExpenses(workerId, month = currentMonthKey()) {
 
 function workerMonthlyPersonalExpenseTotal(workerId, month = currentMonthKey()) {
   return getWorkerMonthExpenses(workerId, month).reduce((sum, item) => sum + safeNumber(item.amount, 0), 0);
+}
+
+function workerAdvanceDeduction(worker) {
+  const workerName = String(worker?.name || '').trim();
+  return workerName === 'كريم' || workerName.includes('كريم') ? 40000 : 0;
+}
+
+function getWorkerEffectiveAdvance(workerId, month = currentMonthKey()) {
+  const worker = state.workers.find(item => item.id === workerId);
+  if (!worker) return 0;
+  return Math.max(0, safeNumber(worker.advance, 0) + workerMonthlyPersonalExpenseTotal(workerId, month) - workerAdvanceDeduction(worker));
 }
 
 function renderWorkerExpensesView() {
@@ -948,7 +1003,8 @@ function renderSummary() {
     const attendanceDays = workerEntryAttendance(worker.id, currentMonthKey());
     const overtimeHours = workerEntryOvertime(worker.id, currentMonthKey());
     const personalExpenseTotal = workerMonthlyPersonalExpenseTotal(worker.id, currentMonthKey());
-    totals.workers += (attendanceDays * safeNumber(worker.rate)) + (overtimeHours * safeNumber(worker.overtimeRate)) - safeNumber(worker.advance) - personalExpenseTotal;
+    const advanceTotal = getWorkerEffectiveAdvance(worker.id, currentMonthKey());
+    totals.workers += (attendanceDays * safeNumber(worker.rate)) + (overtimeHours * safeNumber(worker.overtimeRate)) - advanceTotal;
     units.workers += attendanceDays;
 
     const monthlyExpenses = (worker.personalExpenses || []).filter(item => (item.date || '').slice(0, 7) === currentMonthKey());
@@ -1068,7 +1124,7 @@ function addCompanyExpense() {
 function addPerson(type) {
   const person = {
     id: crypto.randomUUID(),
-    name: type === 'trucks' ? `الشاحنة ${arabicDigits(state.trucks.length + 1)}` : type === 'diggers' ? `حفارة ${arabicDigits(state.diggers.length + 1)}` : `السائق ${arabicDigits(state.workers.length + 1)}`,
+    name: type === 'trucks' ? `الشاحنة ${arabicDigits(state.trucks.length + 1)}` : type === 'diggers' ? `G(Hyundai) ${String(state.diggers.length + 1).padStart(2,'0')} حفارة` : `السائق ${arabicDigits(state.workers.length + 1)}`,
     rate: type === 'trucks' ? 0 : 1800,
     ...(type === 'workers' ? { monthlySalary: 0, workDays: 0, overtimeHours: 0, overtimeRate: 0, advance: 0 } : {}),
     ...(type === 'diggers' ? { serviceHours: 0, oilThreshold: 230, oilWarningThreshold: 210, oilChanges: [] } : {})
@@ -1160,7 +1216,7 @@ function openEntry(type = 'workers', personId = '') {
     qs('#entryAttendance').value = '1';
   }
   if (type === 'diggers') {
-    qs('#entryWorkType').value = 'حفر';
+    qs('#entryWorkType').value = 'G';
     qs('#entryAmount').value = '1';
   }
   updateEntryLabels();
@@ -1286,7 +1342,42 @@ document.addEventListener('change', event => {
   }
 });
 
-document.addEventListener('input', event => {
+function updateDiggerRowTotals(row, person) {
+  if (!row || !person) return;
+  const hours = safeNumber(row.querySelector('.digger-day-hours')?.value, 0);
+  const rate = safeNumber(row.querySelector('.digger-day-rate')?.value, safeNumber(person.rate, 0));
+  const totalEl = row.querySelector('.digger-day-total');
+  const rowTotal = hours * rate;
+  if (totalEl) totalEl.textContent = money(rowTotal);
+
+  const summaryEl = document.querySelector('.digger-month-total strong');
+  if (summaryEl) {
+    const allRows = [...document.querySelectorAll('.digger-month-row')];
+    const total = allRows.reduce((sum, item) => {
+      const rowHours = safeNumber(item.querySelector('.digger-day-hours')?.value, 0);
+      const rowRate = safeNumber(item.querySelector('.digger-day-rate')?.value, safeNumber(person.rate, 0));
+      return sum + (rowHours * rowRate);
+    }, 0);
+    summaryEl.textContent = money(total);
+  }
+}
+
+function updateDiggerMonthFinalTotal(person) {
+  if (!person) return;
+  const summaryEl = document.querySelector('.digger-month-total strong');
+  if (!summaryEl) return;
+
+  const rows = [...document.querySelectorAll('.digger-month-row')];
+  const total = rows.reduce((sum, row) => {
+    const rowHours = safeNumber(row.querySelector('.digger-day-hours')?.value, 0);
+    const rowRate = safeNumber(row.querySelector('.digger-day-rate')?.value, safeNumber(person.rate, 0));
+    return sum + (rowHours * rowRate);
+  }, 0);
+
+  summaryEl.textContent = money(total);
+}
+
+function handleDiggerFieldChange(event) {
   if (!event.target.matches('.digger-day-hours, .digger-day-type, .digger-day-rate')) return;
 
   const personId = event.target.dataset.diggerId;
@@ -1296,9 +1387,21 @@ document.addEventListener('input', event => {
   const person = state.diggers.find(item => item.id === personId);
   if (!person) return;
 
-  const entry = getOrCreateDiggerEntry(personId, date, 'حفر');
+  const entry = getOrCreateDiggerEntry(personId, date, 'G');
+  const row = event.target.closest('.digger-month-row');
+
   if (event.target.matches('.digger-day-type')) {
-    entry.workType = String(event.target.value || '').trim() || 'حفر';
+    const selectedType = String(event.target.value || '').trim().toUpperCase() || 'G';
+    entry.workType = selectedType;
+    const nextRate = diggerRateForWorkType(selectedType);
+    if (nextRate > 0) {
+      person.rate = nextRate;
+      const rateInput = row?.querySelector('.digger-day-rate');
+      if (rateInput) rateInput.value = String(nextRate);
+    }
+    updateDiggerRowTotals(row, person);
+    updateDiggerMonthFinalTotal(person);
+    save();
     return;
   }
 
@@ -1310,14 +1413,13 @@ document.addEventListener('input', event => {
     person.rate = safeNumber(event.target.value, safeNumber(person.rate, 0));
   }
 
-  const row = event.target.closest('.digger-month-row');
-  const hours = safeNumber(row?.querySelector('.digger-day-hours')?.value, 0);
-  const rate = safeNumber(row?.querySelector('.digger-day-rate')?.value, safeNumber(person.rate, 0));
-  const totalEl = row?.querySelector('.digger-day-total');
-  if (totalEl) totalEl.textContent = money(hours * rate);
-
+  updateDiggerRowTotals(row, person);
+  updateDiggerMonthFinalTotal(person);
   save();
-});
+}
+
+document.addEventListener('input', handleDiggerFieldChange);
+document.addEventListener('change', handleDiggerFieldChange);
 
 qs('#workerExpenseForm').addEventListener('submit', event => {
   event.preventDefault();
@@ -1383,7 +1485,7 @@ qs('#entryForm').addEventListener('submit', event => {
   const personId = qs('#entryPerson').value;
   const date = qs('#entryDate').value;
   const person = state[type].find(item => item.id === personId);
-  const workType = type === 'diggers' ? String(qs('#entryWorkType').value || '').trim() || 'عام' : 'عام';
+  const workType = type === 'diggers' ? String(qs('#entryWorkType').value || '').trim().toUpperCase() || 'G' : 'عام';
 
   if (type === 'workers') {
     const selectedDate = qs('#entryDate').value;
@@ -1426,6 +1528,16 @@ qs('#entryForm').addEventListener('submit', event => {
   const amount = type === 'workers' ? attendance : Number(qs('#entryAmount').value) || 0;
 
   if (type === 'diggers') {
+    const workRate = diggerRateForWorkType(workType);
+    if (workRate > 0) {
+      person.rate = workRate;
+    }
+    if (person) {
+      const baseMeter = safeNumber(person.currentMeter, safeNumber(person.serviceHours, 0));
+      person.workHours = safeNumber(amount, 0);
+      person.currentMeter = baseMeter + person.workHours;
+      person.serviceHours = person.currentMeter;
+    }
     state.entries.push({ id: crypto.randomUUID(), type, personId, date, month: date.slice(0, 7), amount, workType });
     qs('#entryModal').classList.remove('open');
     render();
@@ -1567,6 +1679,34 @@ document.addEventListener('change', event => {
       person.monthlySalary = Number(event.target.value) || 0;
       render();
       showToast('تم تحديث الراتب الشهري');
+      return;
+    }
+    if (event.target.dataset.field === 'serviceHours') {
+      person.serviceHours = Number(event.target.value) || 0;
+      person.currentMeter = person.serviceHours;
+      render();
+      showToast('تم تحديث عدد ساعات الحفارة');
+      return;
+    }
+    if (event.target.dataset.field === 'workHours') {
+      person.workHours = Number(event.target.value) || 0;
+      const meter = getDiggerMeterState(person);
+      person.currentMeter = meter.currentMeter;
+      person.serviceHours = meter.newMeter;
+      render();
+      showToast('تم تحديث عدد ساعات العمل');
+      return;
+    }
+    if (event.target.dataset.field === 'oilWarningThreshold') {
+      person.oilWarningThreshold = Number(event.target.value) || 0;
+      render();
+      showToast('تم تحديث تنبيه الزيت');
+      return;
+    }
+    if (event.target.dataset.field === 'oilThreshold') {
+      person.oilThreshold = Number(event.target.value) || 0;
+      render();
+      showToast('تم تحديث حد الزيت');
       return;
     }
     person[event.target.dataset.field] = Number(event.target.value);
